@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapfold</title>
+  <meta name="description" content="Mapfold is an offline worldbuilding and map-making app for dungeon masters, game masters and writers.">
+  <meta name="author" content="direk james">
+  <meta name="theme-color" content="#16130f">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Alegreya:ital,wght@0,400;0,500;1,400;1,500&family=Cinzel:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- ============ LIBRARY (the atlas shelf) ============ -->
+  <main id="library" class="screen">
+    <header class="lib-hero">
+      <svg class="compass" viewBox="0 0 200 200" aria-hidden="true">
+        <g class="compass-rings">
+          <circle cx="100" cy="100" r="92"/>
+          <circle cx="100" cy="100" r="84"/>
+          <circle cx="100" cy="100" r="54"/>
+        </g>
+        <g class="compass-ticks"></g>
+        <g class="compass-star">
+          <path d="M100 8 L112 88 L100 100 L88 88Z"/>
+          <path d="M192 100 L112 112 L100 100 L112 88Z"/>
+          <path d="M100 192 L88 112 L100 100 L112 112Z"/>
+          <path d="M8 100 L88 88 L100 100 L88 112Z"/>
+          <path class="minor" d="M156 44 L108 104 L100 100 L104 92Z"/>
+          <path class="minor" d="M156 156 L96 108 L100 100 L108 104Z"/>
+          <path class="minor" d="M44 156 L92 96 L100 100 L96 108Z"/>
+          <path class="minor" d="M44 44 L104 92 L100 100 L92 96Z"/>
+        </g>
+        <circle class="compass-hub" cx="100" cy="100" r="5"/>
+      </svg>
+      <div class="lib-title">
+        <h1>Mapfold</h1>
+        <p class="lib-tagline">Draw the lands your stories walk through.</p>
+        <div class="lib-actions">
+          <button class="btn btn-gilt" id="btn-new-world">
+            <svg class="i"><use href="#i-plus"/></svg>New world
+          </button>
+          <button class="btn" id="btn-import-world">
+            <svg class="i"><use href="#i-import"/></svg>Import .mapfold
+          </button>
+          <input type="file" id="file-import-world" accept=".mapfold,.zip" hidden>
+        </div>
+      </div>
+    </header>
+
+    <section class="shelf">
+      <div class="shelf-head">
+        <h2>Your worlds</h2>
+        <span class="shelf-count" id="shelf-count"></span>
+      </div>
+      <div class="tomes" id="tomes"></div>
+      <div class="shelf-empty" id="shelf-empty" hidden>
+        <p class="empty-title">The shelf is bare.</p>
+        <p>Start a new world to draw your first map, or import a <em>.mapfold</em> file you exported before.</p>
+      </div>
+    </section>
+
+    <footer class="lib-foot">
+      <span>Mapfold by direk james. Everything stays in this browser until you export it.</span>
+      <span id="storage-note"></span>
+    </footer>
+  </main>
+
+  <!-- ============ EDITOR ============ -->
+  <div id="editor" class="screen" hidden>
+    <header class="topbar">
+      <button class="tb-btn" id="btn-back" title="Back to your worlds">
+        <svg class="i"><use href="#i-book"/></svg><span>Worlds</span>
+      </button>
+      <div class="tb-crumbs">
+        <span class="crumb-world" id="crumb-world"></span>
+        <svg class="crumb-sep" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4"/></svg>
+        <span class="crumb-map" id="crumb-map"></span>
+      </div>
+      <div class="tb-group">
+        <button class="tb-icon" id="btn-undo" title="Undo (Ctrl+Z)"><svg class="i"><use href="#i-undo"/></svg></button>
+        <button class="tb-icon" id="btn-redo" title="Redo (Ctrl+Shift+Z)"><svg class="i"><use href="#i-redo"/></svg></button>
+      </div>
+      <div class="tb-group zoom-group">
+        <button class="tb-icon" id="btn-zoom-out" title="Zoom out (-)"><svg class="i"><use href="#i-minus"/></svg></button>
+        <button class="zoom-read" id="zoom-read" title="Fit map to screen (0)">100%</button>
+        <button class="tb-icon" id="btn-zoom-in" title="Zoom in (+)"><svg class="i"><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="tb-spacer"></div>
+      <span class="save-state" id="save-state" data-state="saved">Saved</span>
+      <button class="tb-icon" id="btn-help" title="Keyboard shortcuts (?)"><svg class="i"><use href="#i-help"/></svg></button>
+      <div class="menu-wrap">
+        <button class="btn btn-gilt btn-sm" id="btn-export"><svg class="i"><use href="#i-export"/></svg>Export</button>
+        <div class="menu" id="menu-export" hidden>
+          <button data-export="world"><strong>World file</strong><span>Everything in this world, as a .mapfold backup</span></button>
+          <button data-export="png"><strong>Map image</strong><span>This map as a full-size PNG</span></button>
+          <button data-export="inkfold"><strong>Send to Inkfold</strong><span>Map picture with pins and labels for Inkfold</span></button>
+        </div>
+      </div>
+    </header>
+
+    <aside class="side side-left">
+      <section class="panel">
+        <div class="panel-head">
+          <h3>Maps</h3>
+          <button class="ph-btn" id="btn-add-map" title="Add a map"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+        <ul class="map-list" id="map-list"></ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h3>Layers</h3></div>
+        <ul class="layer-list" id="layer-list"></ul>
+      </section>
+
+      <section class="panel panel-grow">
+        <div class="panel-head"><h3>Places</h3><span class="ph-count" id="places-count"></span></div>
+        <label class="search">
+          <svg class="i"><use href="#i-search"/></svg>
+          <input type="search" id="places-search" placeholder="Find a place" autocomplete="off">
+        </label>
+        <div class="places" id="places"></div>
+      </section>
+    </aside>
+
+    <section class="stage-wrap">
+      <nav class="toolrail" id="toolrail" aria-label="Tools"></nav>
+      <div class="viewport" id="viewport" data-tool="select" tabindex="0">
+        <div class="world" id="world">
+          <canvas id="base-canvas"></canvas>
+          <img id="base-image" alt="" hidden>
+          <canvas id="terrain-canvas"></canvas>
+          <svg id="overlay" xmlns="http://www.w3.org/2000/svg">
+            <defs id="overlay-defs"></defs>
+            <g id="g-grid"></g>
+            <g id="g-regions"></g>
+            <g id="g-routes"></g>
+            <g id="g-labels"></g>
+            <g id="g-pins"></g>
+            <g id="g-draft"></g>
+            <g id="g-handles"></g>
+          </svg>
+        </div>
+        <div class="brush-cursor" id="brush-cursor" hidden></div>
+        <div class="hint" id="hint" hidden></div>
+        <div class="scalebar" id="scalebar">
+          <div class="sb-bar"><span></span><span></span></div>
+          <div class="sb-label" id="sb-label"></div>
+        </div>
+        <div class="coords" id="coords"></div>
+        <div class="measure-tag" id="measure-tag" hidden></div>
+      </div>
+    </section>
+
+    <aside class="side side-right" id="inspector"></aside>
+  </div>
+
+  <!-- dialogs, toasts -->
+  <div class="scrim" id="scrim" hidden></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="small-screen" id="small-screen" hidden>
+    <div class="ss-card">
+      <h2>Made for bigger screens</h2>
+      <p>Mapfold is built for desktop. Map editing needs room for the tools and panels.</p>
+      <button class="btn btn-gilt" id="btn-small-ok">Continue anyway</button>
+    </div>
+  </div>
+
+  <!-- ornament used on dialogs -->
+  <template id="tpl-corners">
+    <svg class="corner tl" viewBox="0 0 40 40"><path d="M2 38V14C2 7 7 2 14 2h24M8 38V18c0-6 4-10 10-10h20M14 14h4v4h-4z"/></svg>
+    <svg class="corner tr" viewBox="0 0 40 40"><path d="M2 38V14C2 7 7 2 14 2h24M8 38V18c0-6 4-10 10-10h20M14 14h4v4h-4z"/></svg>
+    <svg class="corner bl" viewBox="0 0 40 40"><path d="M2 38V14C2 7 7 2 14 2h24M8 38V18c0-6 4-10 10-10h20M14 14h4v4h-4z"/></svg>
+    <svg class="corner br" viewBox="0 0 40 40"><path d="M2 38V14C2 7 7 2 14 2h24M8 38V18c0-6 4-10 10-10h20M14 14h4v4h-4z"/></svg>
+  </template>
+
+  <svg id="sprite" xmlns="http://www.w3.org/2000/svg" style="display:none"></svg>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
