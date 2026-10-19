@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapfold · Players</title>
+  <meta name="author" content="direk james">
+  <meta name="theme-color" content="#0d0b08">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/player.css">
+</head>
+<body>
+  <main id="stage" aria-live="polite">
+    <img id="map" alt="" hidden draggable="false">
+  </main>
+  <section id="wait" class="wait">
+    <svg class="wait-star" viewBox="0 0 200 200" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><circle cx="100" cy="100" r="88"/><circle cx="100" cy="100" r="54"/><path d="M100 10 112 88 190 100 112 112 100 190 88 112 10 100 88 88Z" fill="currentColor" fill-opacity=".18"/></g></svg>
+    <h1 id="wait-title">Waiting for the map</h1>
+    <p id="wait-note">Your game master will share it in a moment.</p>
+  </section>
+  <div id="blackout" class="blackout" hidden></div>
+  <div id="hint" class="hint">Press <kbd>F</kbd> for fullscreen</div>
+  <script type="module" src="js/player.js"></script>
+</body>
+</html>

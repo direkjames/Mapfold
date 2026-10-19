@@ -192,6 +192,46 @@ const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '
  * Body -> safe HTML. Supports # headings, - lists, **bold**, *italic* and [[links]].
  * Everything is escaped first, so nothing typed can inject markup.
  */
+const OPEN = '\uE000', CLOSE = '\uE001';
+
+/**
+ * Text between double bars is for the GM only: ||the baron is a vampire||. Anything exported for players or
+ * Inkfold passes through this first. An opening || with no closing one hides the rest of the text, so a typo
+ * can never leak a secret.
+ */
+export function stripSecrets(body) {
+  const t = String(body || '');
+  if (!t.includes('||')) return t;
+  let out = '', i = 0;
+  while (i < t.length) {
+    const a = t.indexOf('||', i);
+    if (a < 0) { out += t.slice(i); break; }
+    out += t.slice(i, a);
+    const b = t.indexOf('||', a + 2);
+    if (b < 0) break;
+    i = b + 2;
+  }
+  return out.replace(/[ \t]+\n/g, '\n').replace(/ {2,}/g, ' ').trim();
+}
+
+export const hasSecrets = body => String(body || '').includes('||');
+
+/** Mark ||secret|| runs with private-use characters, one line at a time, so spans never cross a paragraph. */
+function markSecretLines(lines) {
+  let open = false;
+  return lines.map(line => {
+    let out = open ? OPEN : '';
+    let i = 0;
+    while (i < line.length) {
+      const a = line.indexOf('||', i);
+      if (a < 0) { out += line.slice(i); break; }
+      out += line.slice(i, a) + (open ? CLOSE : OPEN);
+      open = !open; i = a + 2;
+    }
+    return out + (open ? CLOSE : '');
+  });
+}
+
 export function renderBodyHtml(body, byId, index) {
   const inline = raw => {
     let s = escHtml(raw);
@@ -207,13 +247,14 @@ export function renderBodyHtml(body, byId, index) {
         ? `<a class="wl" data-entry="${hits[0].id}" href="#">${typed}</a>`
         : `<button type="button" class="wl wl-new" data-new="${typed.trim()}" title="No entry called this yet. Click to create it.">${typed}</button>`;
     });
+    s = s.replace(/\uE000/g, '<span class="gm-secret" title="Only you see this. It is left out of exports.">').replace(/\uE001/g, '</span>');
     return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
   };
   const out = [];
   let list = null, para = [];
   const flushPara = () => { if (para.length) { out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; } };
   const flushList = () => { if (list) { out.push(`<ul>${list.map(li => `<li>${inline(li)}</li>`).join('')}</ul>`); list = null; } };
-  for (const line of String(body || '').split('\n')) {
+  for (const line of markSecretLines(String(body || '').split('\n'))) {
     const h = line.match(/^(#{1,3})\s+(.*)$/);
     const li = line.match(/^\s*[-*]\s+(.*)$/);
     if (h) { flushPara(); flushList(); out.push(`<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`); }

@@ -2,7 +2,8 @@
 import { db, uid } from './db.js';
 import { makeZip, readZip, textOf } from './zip.js';
 import { cleanCalendar, isDay } from './calendar.js';
-import { remapLinks, nameOf, isSecret, plainText, regionColor } from './entries.js';
+import { PACES } from './table.js';
+import { remapLinks, stripSecrets, nameOf, isSecret, plainText, regionColor } from './entries.js';
 
 export const FORMAT_VERSION = 2; // 2: wiki entries, secret flag. Version 1 files still import.
 export const MAX_TERRAIN_SIDE = 4096;
@@ -70,6 +71,13 @@ function sanitizeMap(m) {
   map.width = Math.round(num(map.width, 200, 16000, 2400));
   map.height = Math.round(num(map.height, 200, 16000, 1800));
   map.layers = { ...defaultLayers(), ...(map.layers || {}) };
+  // A file written by hand or by another tool may leave these out; the editor needs all of them.
+  const g = map.grid && typeof map.grid === 'object' ? map.grid : {};
+  map.grid = { type: ['none', 'square', 'hex'].includes(g.type) ? g.type : 'none', size: num(g.size, 8, 2000, 100), color: typeof g.color === 'string' && /^#[0-9a-f]{6}$/i.test(g.color) ? g.color : '#3a2c1e', opacity: num(g.opacity, 0, 1, 0.22) };
+  const sc = map.scale && typeof map.scale === 'object' ? map.scale : {};
+  map.scale = { perCell: num(sc.perCell, 0.0001, 1e9, 10), unit: typeof sc.unit === 'string' ? sc.unit.slice(0, 12) : 'mi' };
+  if (!map.base || typeof map.base !== 'object' || !['image', 'blank'].includes(map.base.kind)) map.base = { kind: 'blank', style: 'parchment', seed: 1 };
+  map.fog = { on: !!(map.fog && map.fog.on) };
   const o = map.objects && typeof map.objects === 'object' ? map.objects : {};
   map.objects = { pins: arr(o.pins), labels: arr(o.labels), regions: arr(o.regions), routes: arr(o.routes) };
   map.objects.regions = map.objects.regions.filter(r => Array.isArray(r.points));
@@ -109,6 +117,8 @@ export async function exportWorld(worldId) {
     if (base) { entry.files.base = `images/${m.id}-base`; entry.files.baseType = base.type || 'image/png'; files.push({ name: entry.files.base, data: base }); }
     const terr = await db.getBlob('terrain:' + m.id);
     if (terr) { entry.files.terrain = `images/${m.id}-terrain.png`; files.push({ name: entry.files.terrain, data: terr }); }
+    const fog = m.fog?.on ? await db.getBlob('fog:' + m.id) : null;
+    if (fog) { entry.files.fog = `images/${m.id}-fog.png`; files.push({ name: entry.files.fog, data: fog }); }
     mapsOut.push(entry);
   }
   const thumb = await db.getBlob('thumb:' + worldId);
@@ -190,11 +200,17 @@ export async function importWorld(file) {
   const world = { ...data.world, id: worldId, name, updated: Date.now(), version: FORMAT_VERSION, lastBackup: Date.now() };
   if (data.world.calendar) world.calendar = cleanCalendar(data.world.calendar);
   if (!isDay(world.currentDay)) delete world.currentDay;
+  const pt = data.world.party;
+  const pmap = pt && typeof pt === 'object' ? ids.maps.get(pt.mapId) : null;
+  if (pmap && Number.isFinite(+pt.x) && Number.isFinite(+pt.y)) {
+    world.party = { mapId: pmap, x: +pt.x, y: +pt.y, name: String(pt.name || 'The party').slice(0, 60), pace: PACES[pt.pace] ? pt.pace : 'normal', speed: +pt.speed > 0 ? +pt.speed : 24, visible: pt.visible !== false };
+  } else delete world.party;
   await db.putWorld(world);
   for (const { map, files } of mapRows) {
     await db.putMap(map);
     if (files.base && entries.get(files.base)) await db.putBlob('base:' + map.id, new Blob([entries.get(files.base)], { type: files.baseType || 'image/png' }));
     if (files.terrain && entries.get(files.terrain)) await db.putBlob('terrain:' + map.id, new Blob([entries.get(files.terrain)], { type: 'image/png' }));
+    if (map.fog.on && files.fog && entries.get(files.fog)) await db.putBlob('fog:' + map.id, new Blob([entries.get(files.fog)], { type: 'image/png' }));
   }
   if (entryRows.length) await db.putEntries(entryRows);
   if (entries.get('thumb.png')) await db.putBlob('thumb:' + world.id, new Blob([entries.get('thumb.png')], { type: 'image/png' }));
@@ -213,12 +229,12 @@ export function interchangeFor(map, world, byId = new Map()) {
   const pt = p => [nx(p[0]), ny(p[1])];
   const o = map.objects;
   const entryOf = x => (x.entryId && byId.get(x.entryId)) || null;
-  const note = x => { const e = entryOf(x); return e ? (e.secret ? '' : plainText(e.body)) : (x.lore || ''); };
+  const note = x => { const e = entryOf(x); return e ? (e.secret ? '' : plainText(stripSecrets(e.body))) : (x.lore || ''); };
   const base = x => ({ note: note(x), entryId: x.entryId || null, secret: isSecret(x, byId) });
   // Secret entries never travel: their text is left out of both `note` and `entries`.
   const linked = new Set([...o.pins, ...o.regions, ...o.routes].flatMap(x => [x.entryId, x.factionId]).filter(Boolean));
   const entries = [...linked].map(id => byId.get(id)).filter(e => e && !e.secret).map(e => ({
-    id: e.id, type: e.type, name: e.name, color: e.color || null, aliases: e.aliases || [], tags: e.tags || [], fields: e.fields || {}, body: plainText(e.body),
+    id: e.id, type: e.type, name: e.name, color: e.color || null, aliases: e.aliases || [], tags: e.tags || [], fields: e.fields || {}, body: plainText(stripSecrets(e.body)),
   }));
   return {
     format: 'mapfold-interchange',

@@ -1,6 +1,7 @@
 // Mapfold — shared geometry, styles, and the canvas renderer for exports. Author: direk james
 import { PIN_ICONS, PIN_BODY, PIN_HEAD_Y } from './icons.js';
 import { nameOf, isSecret, regionColor, legendFor } from './entries.js';
+import { drawFog, drawParty } from './table.js';
 
 export const LABEL_STYLES = {
   realm:      { name: 'Realm',      family: 'Cinzel',        weight: 600, italic: false, spacing: 0.32, size: 72, color: '#3a2c1e' },
@@ -122,7 +123,7 @@ function drawText(ctx, text, x, y, style, size, color, rotation = 0) {
  * Draw a whole map onto ctx at `scale` (1 = full size).
  * sources: { base: CanvasImageSource, terrain: CanvasImageSource }
  */
-export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid = true, pinNames, only, hideSecret = false, entries } = {}) {
+export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid = true, pinNames, only, hideSecret = false, entries, fog, party } = {}) {
   const L = {};
   for (const [k, v] of Object.entries(map.layers)) L[k] = { ...v, visible: v.visible && (!only || only.includes(k)) };
   const showNames = pinNames ?? map.showPinNames !== false;
@@ -223,6 +224,8 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
       }
     }
   }
+  if (fog) drawFog(ctx, fog, W, H);
+  if (party) drawParty(ctx, party, Math.max(1, W / 1600));
   if (map.showLegend) drawLegend(ctx, map, entries, hideSecret);
   ctx.restore();
 }

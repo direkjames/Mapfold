@@ -3,6 +3,7 @@ import { db, uid } from './db.js';
 import { $, $$, esc, toast, dialog, confirmBox, promptBox, download, safeName } from './ui.js';
 import { icon, pinGlyph, PIN_ICONS, PIN_BODY, PIN_HEAD_Y, PALETTE } from './icons.js';
 import { paintParchment } from './parchment.js';
+import { initTabletop, attachFog, fogBlob, fogCanvas, toolChanged, pointerDown as tableDown, pointerMove as tableMove, pointerUp as tableUp, applyFogHistory, fogPanel, fogBrushPx, partyPanel, regionFogHtml, bindRegionFog, renderParty, changed as tableChanged, viewChanged, sessionEnded } from './tabletop.js';
 import { PAINTS, STAMPS, STAMP_SPACING, paintDab, eraseDab, drawStamp, grain, outlineCoast, INK } from './terrain.js';
 import {
   LABEL_STYLES, ROUTE_KINDS, labelFont, pathFor, polylineLength, centroid, hexToRgba,
@@ -33,6 +34,9 @@ const TOOLS = [
   { id: 'eraser', name: 'Terrain eraser', key: 'E', icon: 'eraser' },
   null,
   { id: 'measure', name: 'Measure distance', key: 'M', icon: 'measure' },
+  null,
+  { id: 'fog', name: 'Fog of war', key: 'F', icon: 'cloud' },
+  { id: 'party', name: 'Party and travel', key: 'K', icon: 'flag' },
 ];
 
 const LAYER_NAMES = {
@@ -53,7 +57,7 @@ const E = {
   brush: { mode: 'paint', paint: 'grass', stamp: 'mountains', size: 70, strength: 0.7, spacing: 1 },
   undo: [], redo: [],
   baseSource: null, tctx: null, ts: 1,
-  dirtyMap: false, dirtyTerrain: false,
+  dirtyMap: false, dirtyTerrain: false, dirtyFog: false,
   saveTimer: 0, lastThumb: 0, saving: null,
   spaceDown: false,
   drag: null,
@@ -81,6 +85,11 @@ export function initEditor(onExit) {
   terrainCanvas.after(strokeCanvas);
   for (const k of ['grid', 'regions', 'routes', 'labels', 'pins', 'draft', 'handles']) G[k] = $('#g-' + k);
 
+  initTabletop({
+    map: () => E.map, world: () => E.world, maps: () => E.maps, zoom: () => E.zoom, tool: () => E.tool,
+    sources: () => ({ base: E.baseSource, terrain: terrainCanvas }),
+    viewRect, history: pushPaint, markFogDirty, markDirty, refreshInspector: renderInspector,
+  });
   buildToolrail();
   bindViewport();
   bindKeys();
@@ -113,7 +122,7 @@ export function initEditor(onExit) {
   window.addEventListener('resize', () => { if (E.map) { clampPan(); applyView(); } });
   window.addEventListener('beforeunload', e => {
     flushEntries();
-    if (E.dirtyMap || E.dirtyTerrain) { flush(); e.preventDefault(); e.returnValue = ''; }
+    if (E.dirtyMap || E.dirtyTerrain || E.dirtyFog) { flush(); e.preventDefault(); e.returnValue = ''; }
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) { flush(); flushEntries(); } });
 }
@@ -139,6 +148,7 @@ async function exitEditor() {
   await flush();
   await flushEntries();
   E.map = null;
+  sessionEnded();
   E.onExit?.();
 }
 
@@ -147,7 +157,7 @@ async function exitEditor() {
 /** An entry was renamed or made secret: redraw the names and styles on the map. */
 function onEntriesChanged() {
   if (!E.map) return;
-  renderRegions(); renderPins(); renderHandles(); renderPlaces(); renderLegend();
+  renderRegions(); renderPins(); renderHandles(); renderPlaces(); renderLegend(); tableChanged();
 }
 
 /** Key to the factions shown on this map (the same one the exported image draws). */
@@ -300,9 +310,13 @@ async function loadMap(id) {
     bmp.close?.();
   }
 
+  E.dirtyFog = false;
+  await attachFog(map, map.fog?.on ? await db.getBlob('fog:' + map.id) : null);
+
   renderMapList();
   renderLayers();
   renderAll();
+  renderParty();
   renderInspector();
   updateUndoButtons();
   fit();
@@ -311,6 +325,14 @@ async function loadMap(id) {
 // ------------------------------------------------------------------ view
 
 function vpRect() { return vp.getBoundingClientRect(); }
+
+/** The part of the map on screen, as fractions of the map, for the player window to follow. */
+function viewRect() {
+  const r = vpRect(), m = E.map;
+  const x0 = (RAIL - E.panX) / E.zoom, y0 = -E.panY / E.zoom, x1 = (r.width - E.panX) / E.zoom, y1 = (r.height - E.panY) / E.zoom;
+  const c = (v, max) => Math.max(0, Math.min(1, v / max));
+  return { x0: c(x0, m.width), y0: c(y0, m.height), x1: c(x1, m.width), y1: c(y1, m.height) };
+}
 
 const RAIL = 76; // room kept clear for the floating toolrail
 
@@ -372,6 +394,7 @@ function centerOn(x, y, z = Math.max(E.zoom, 1)) {
 let lastPinZoom = 0;
 function applyView() {
   worldEl.style.transform = `translate(${E.panX}px, ${E.panY}px) scale(${E.zoom})`;
+  if (E.map) viewChanged();
   $('#zoom-read').textContent = Math.round(E.zoom * 100) + '%';
   terrainCanvas.style.imageRendering = E.zoom > 2.5 ? 'pixelated' : 'auto';
   if (Math.abs(lastPinZoom - E.zoom) > 1e-4) {
@@ -654,8 +677,9 @@ async function deleteMap(id) {
   const m = E.maps.find(m => m.id === id);
   const ok = await confirmBox('Delete this map?', `<strong>${esc(m.name)}</strong>, its terrain paint and every pin, label, region and route on it will be removed.${E.maps.some(x => x.parentMapId === id) ? ' Maps inside it stay, and move up to the top level.' : ''} This cannot be undone.`, { okLabel: 'Delete map' });
   if (!ok) return;
-  if (id === E.map.id) { E.dirtyMap = false; E.dirtyTerrain = false; clearTimeout(E.saveTimer); }
+  if (id === E.map.id) { E.dirtyMap = false; E.dirtyTerrain = false; E.dirtyFog = false; clearTimeout(E.saveTimer); }
   await db.deleteMap(id);
+  if (E.world.party?.mapId === id) { delete E.world.party; await db.putWorld(E.world); renderParty(); }
   E.maps = E.maps.filter(x => x.id !== id);
   for (const x of E.maps) {
     let changed = false;
@@ -771,7 +795,7 @@ function pushPaint(entry) {
   // keep paint memory bounded
   // keep paint memory bounded: at most 30 steps and about 200 MB of saved pixels (the newest step always stays)
   const bytes = u => u.before.data.length + u.after.data.length;
-  let paints = E.undo.filter(u => u.kind === 'paint');
+  let paints = E.undo.filter(u => u.kind === 'paint' || u.kind === 'fog');
   let total = paints.reduce((n, u) => n + bytes(u), 0);
   while (paints.length > 1 && (paints.length > 30 || total > 200e6)) { total -= bytes(paints[0]); E.undo.splice(E.undo.indexOf(paints[0]), 1); paints.shift(); }
   E.redo = [];
@@ -788,6 +812,10 @@ function applyHistory(from, to) {
     renderAll();
     renderInspector();
     markDirty();
+  } else if (h.kind === 'fog') {
+    applyFogHistory(h, from === E.undo);
+    to.push(h);
+    if (E.tool === 'fog') renderInspector();
   } else if (h.kind === 'paint') {
     const isUndo = from === E.undo;
     E.tctx.putImageData(isUndo ? h.before : h.after, h.x, h.y);
@@ -816,11 +844,18 @@ function setSaveState(s) {
 function markDirty() {
   E.dirtyMap = true;
   scheduleSave();
+  tableChanged();
+}
+
+function markFogDirty() {
+  E.dirtyFog = true;
+  scheduleSave();
 }
 
 function markTerrainDirty() {
   E.dirtyTerrain = true;
   scheduleSave();
+  tableChanged();
 }
 
 function scheduleSave() {
@@ -832,10 +867,10 @@ function scheduleSave() {
 async function flush() {
   clearTimeout(E.saveTimer);
   if (E.saving) await E.saving;
-  if (!E.map || (!E.dirtyMap && !E.dirtyTerrain)) return;
+  if (!E.map || (!E.dirtyMap && !E.dirtyTerrain && !E.dirtyFog)) return;
   const map = E.map;
-  const doTerrain = E.dirtyTerrain;
-  E.dirtyMap = false; E.dirtyTerrain = false;
+  const doTerrain = E.dirtyTerrain, doFog = E.dirtyFog;
+  E.dirtyMap = false; E.dirtyTerrain = false; E.dirtyFog = false;
   setSaveState('saving');
   E.saving = (async () => {
     try {
@@ -845,9 +880,13 @@ async function flush() {
         const blob = await new Promise(r => terrainCanvas.toBlob(r, 'image/png'));
         if (blob) await db.putBlob('terrain:' + map.id, blob);
       }
+      if (doFog) {
+        const fb = map.fog?.on ? await fogBlob() : null;
+        if (fb) await db.putBlob('fog:' + map.id, fb); else await db.deleteBlob('fog:' + map.id);
+      }
       if (Date.now() - E.lastThumb > 4000) { E.lastThumb = Date.now(); await saveThumb(map); }
       await touchWorld(map.worldId);
-      if (E.map === map && !E.dirtyMap && !E.dirtyTerrain) setSaveState('saved');
+      if (E.map === map && !E.dirtyMap && !E.dirtyTerrain && !E.dirtyFog) setSaveState('saved');
     } catch (err) {
       console.error(err);
       setSaveState('error');
@@ -884,7 +923,8 @@ function setTool(t) {
   E.tool = t;
   vp.dataset.tool = t;
   $$('#toolrail .tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
-  $('#brush-cursor').hidden = !(t === 'brush' || t === 'eraser');
+  $('#brush-cursor').hidden = !(t === 'brush' || t === 'eraser' || t === 'fog');
+  toolChanged(t);
   updateHint();
   if (E.map) { renderDraft(); renderInspector(); }
 }
@@ -897,6 +937,8 @@ function updateHint() {
     region: E.draft ? 'Keep clicking to outline. Click the first point, double-click, or press Enter to close. Esc cancels.' : 'Click to start outlining a region.',
     route: E.draft ? 'Keep clicking to add bends. Double-click or press Enter to finish. Esc cancels.' : 'Click to start a route.',
     measure: 'Drag across the map to measure.',
+    fog: 'Drag to uncover the map for your players. Switch to Cover to hide parts again.',
+    party: 'Click the map to place the party, or to travel there.',
   };
   const m = msgs[E.tool];
   h.hidden = !m;
@@ -1127,7 +1169,7 @@ function updateBrushCursor(e) {
   const c = $('#brush-cursor');
   if (c.hidden) return;
   const r = vpRect();
-  const d = E.brush.size;
+  const d = E.tool === 'fog' ? fogBrushPx() : E.brush.size;
   c.style.width = c.style.height = d + 'px';
   c.style.transform = `translate(${e.clientX - r.left - d / 2}px, ${e.clientY - r.top - d / 2}px)`;
 }
@@ -1229,6 +1271,13 @@ function onDown(e) {
     case 'eraser':
       startStroke(m);
       return;
+    case 'fog':
+      E.drag = { kind: 'fog' };
+      tableDown('fog', m);
+      return;
+    case 'party':
+      tableDown('party', m);
+      return;
   }
 }
 
@@ -1279,6 +1328,9 @@ function onMove(e) {
   } else if (d.kind === 'stroke') {
     const ev = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const ce of ev.length ? ev : [e]) strokeTo(toMap(ce));
+  } else if (d.kind === 'fog') {
+    const ev = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ce of ev.length ? ev : [e]) tableMove(toMap(ce));
   }
 }
 
@@ -1291,6 +1343,7 @@ function onUp(e) {
   if (d.kind === 'move' && d.moved) { markDirty(); renderPlaces(); renderInspector(); }
   if (d.kind === 'vertex') { markDirty(); renderInspector(); }
   if (d.kind === 'stroke') endStroke(d);
+  if (d.kind === 'fog') tableUp();
 }
 
 function onDbl(e) {
@@ -1419,6 +1472,8 @@ function renderInspector() {
   const box = $('#inspector');
   if (!E.map) { box.innerHTML = ''; return; }
   if (E.tool === 'brush' || E.tool === 'eraser') return renderBrushPanel(box);
+  if (E.tool === 'fog') return fogPanel(box);
+  if (E.tool === 'party') return partyPanel(box);
   const o = getSel();
   if (!o) return renderMapSettings(box);
 
@@ -1449,6 +1504,7 @@ function renderInspector() {
       <label class="check"><input type="checkbox" name="showName" ${o.showName ? 'checked' : ''}><span>Write the name on the map</span></label>
       ${o.showName ? slider('nameSize', 'Name size', 14, 300, 1, o.nameSize || 40) : ''}
       ${factionField(o)}
+      ${regionFogHtml()}
       ${slider('fill', 'Fill', 0, 0.6, 0.02, o.fill ?? 0.18, v => Math.round(v * 100) + '%')}
       <p class="field-label">Border</p>${seg('border', { solid: 'Solid', dashed: 'Dashed', none: 'None' }, o.border)}
       <label class="check"><input type="checkbox" name="smooth" ${o.smooth ? 'checked' : ''}><span>Smooth the outline</span></label>
@@ -1541,6 +1597,7 @@ function bindInspector(box, o, type) {
     }
   });
   if (type === 'pin') bindNest(box, o);
+  if (type === 'region') bindRegionFog(box, o);
   if (type !== 'label') bindWikiFields(box, o, type, { refresh: () => { rerenderType(type); renderInspector(); renderPlaces(); } });
   $$('[data-color]', box).forEach(b => b.onclick = () => {
     checkpoint(); o.color = b.dataset.color || null; live(); renderInspector(); renderPlaces();
@@ -1676,10 +1733,10 @@ function renderBrushPanel(box) {
 
 function showHelp() {
   const rows = [
-    ['Tools', [['V', 'Select and move'], ['H', 'Pan'], ['P', 'Pin'], ['T', 'Label'], ['R', 'Region'], ['L', 'Route'], ['B', 'Terrain brush'], ['E', 'Eraser'], ['M', 'Measure']]],
+    ['Tools', [['V', 'Select and move'], ['H', 'Pan'], ['P', 'Pin'], ['T', 'Label'], ['R', 'Region'], ['L', 'Route'], ['B', 'Terrain brush'], ['E', 'Eraser'], ['M', 'Measure'], ['F', 'Fog of war'], ['K', 'Party and travel']]],
     ['Map', [['Space + drag', 'Pan from any tool'], ['Scroll', 'Zoom'], ['0', 'Fit map'], ['+ / −', 'Zoom in or out'], ['G', 'Show or hide grid'], ['[ / ]', 'Brush size']]],
     ['Editing', [['Ctrl + Z', 'Undo'], ['Ctrl + Shift + Z', 'Redo'], ['Ctrl + D', 'Duplicate'], ['Alt + drag', 'Duplicate and move'], ['Arrows', 'Nudge (Shift for more)'], ['Delete', 'Delete selection'], ['Enter', 'Finish region or route'], ['Right-click', 'Remove last point'], ['Esc', 'Cancel or deselect'], ['Ctrl + S', 'Save now']]],
-    ['Wiki', [['W', 'Open the wiki'], ['Ctrl + K', 'Find any entry, place or map'], ['[[', 'Link to an entry while writing'], ['Esc', 'Back to the map']]],
+    ['Wiki', [['W', 'Open the wiki'], ['||text||', 'Mark text as GM-only inside notes'], ['Ctrl + K', 'Find any entry, place or map'], ['[[', 'Link to an entry while writing'], ['Esc', 'Back to the map']]],
   ];
   dialog({
     title: 'Keyboard shortcuts', wide: 'xl',
@@ -1719,7 +1776,8 @@ async function doExport(kind) {
     } else if (kind === 'png' || kind === 'png-gm') {
       await ensureFonts();
       const players = kind === 'png';
-      const blob = await renderToBlob({ hideSecret: players });
+      const wp = E.world.party;
+      const blob = await renderToBlob(players ? { hideSecret: true, fog: fogCanvas(), party: wp && wp.mapId === E.map.id && wp.visible !== false ? wp : null } : { hideSecret: false });
       download(blob, `${safeName(E.world.name)}-${safeName(E.map.name)}${players ? '' : '-gm'}.png`);
       const hidden = players ? secretCount(E.map) : 0;
       toast(hidden ? `Map image saved. ${hidden} secret ${hidden === 1 ? 'item was' : 'items were'} left out.` : 'Map image saved', 'good', hidden ? 4200 : 2800);

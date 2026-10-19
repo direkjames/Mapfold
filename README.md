@@ -54,6 +54,14 @@ Press `?` in the editor for every keyboard shortcut.
 
 Not included: stamps are painted into the terrain image, so they can't be picked up and moved afterwards. Use undo or the eraser.
 
+## What's new in 1.4 (Phase 3: at the table)
+
+- **Player view.** *Players* in the top bar opens a second window to drag onto your TV or projector (press **F** there for fullscreen). It shows a player-safe picture of the current map and nothing else: secret pins, regions, factions and entries, and fogged areas are painted out before the picture is sent, and the window never opens your world database. Choose whether players see the whole map or follow your pan and zoom, or black the screen out while you set up.
+- **Fog of war** (**F**). One fog per map. Paint to reveal or cover, reveal or cover a whole region in one click, reveal or cover everything, undo and redo. You see through the fog, dimmed. *Map image* exports include the fog; the GM copy does not.
+- **Party and travel** (**K**). Place a party token, then click to travel: along a road, trail or river if you click near one, or overland if not. Pick a pace (slow, normal, fast) and set how far the party goes in a day. Days pass on your calendar and every trip is written to the timeline as a *Travel* event linked to the places at each end.
+- **Secret text.** Wrap anything in `||double bars||` inside a note and only you see it. It is highlighted in the wiki and left out of anything that leaves the app. A forgotten closing `||` hides the rest of the note rather than leaking it.
+- Imports are now more forgiving: a world file missing its grid, scale or base map gets safe defaults instead of crashing the editor.
+
 ## Files
 
 ```
@@ -74,6 +82,10 @@ js/store.js           world/map model, .mapfold export/import (id remapping), In
 js/nest.js            map nesting: breadcrumb trail, outline, loop-safe parent choices (no DOM)
 js/calendar.js        custom calendars: day numbers to dates and back (no DOM)
 js/timeline.js        calendar editor, date pickers, timeline view
+js/table.js           fog masks, party token, travel maths (no DOM)
+js/tabletop.js        fog and party panels, the player window sync
+js/player.js          the player window (receives pictures only)
+player.html           the player window page
 js/entries.js         wiki entry model: types, [[id|name]] links, search, reading view (no DOM)
 js/wiki.js            the wiki panel, quick switcher, [[ typing help, linking pins to entries
 js/db.js              IndexedDB wrapper
