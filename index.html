@@ -79,8 +79,7 @@
       </button>
       <div class="tb-crumbs">
         <span class="crumb-world" id="crumb-world"></span>
-        <svg class="crumb-sep" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4"/></svg>
-        <span class="crumb-map" id="crumb-map"></span>
+        <nav class="crumb-trail" id="crumb-trail" aria-label="Where you are"></nav>
       </div>
       <div class="tb-group">
         <button class="tb-icon" id="btn-undo" title="Undo (Ctrl+Z)"><svg class="i"><use href="#i-undo"/></svg></button>
@@ -154,6 +153,7 @@
           <div class="sb-bar"><span></span><span></span></div>
           <div class="sb-label" id="sb-label"></div>
         </div>
+        <div class="legend" id="legend" hidden></div>
         <div class="coords" id="coords"></div>
         <div class="measure-tag" id="measure-tag" hidden></div>
       </div>

@@ -1,7 +1,8 @@
 // Mapfold — world/map model, export and import. Author: direk james
 import { db, uid } from './db.js';
 import { makeZip, readZip, textOf } from './zip.js';
-import { remapLinks, nameOf, isSecret, plainText } from './entries.js';
+import { cleanCalendar, isDay } from './calendar.js';
+import { remapLinks, nameOf, isSecret, plainText, regionColor } from './entries.js';
 
 export const FORMAT_VERSION = 2; // 2: wiki entries, secret flag. Version 1 files still import.
 export const MAX_TERRAIN_SIDE = 4096;
@@ -173,12 +174,22 @@ export async function importWorld(file) {
     e.tags = arr(e.tags).map(String);
     e.fields = e.fields && typeof e.fields === 'object' ? e.fields : {};
     e.secret = !!e.secret;
+    if (e.type === 'event') {
+      e.day = isDay(e.day) ? e.day : null;
+      e.endDay = isDay(e.endDay) && e.day !== null && e.endDay > e.day ? e.endDay : null;
+      e.placeIds = [...new Set(arr(e.placeIds).filter(id => typeof id === 'string'))];
+    }
     entryRows.push(e);
   }
   for (const { map } of mapRows) remapMapRefs(map, ids);
-  for (const e of entryRows) e.body = remapLinks(e.body, ids.entries);
+  for (const e of entryRows) {
+    e.body = remapLinks(e.body, ids.entries);
+    if (e.placeIds) e.placeIds = e.placeIds.map(id => ids.entries.get(id)).filter(id => id && id !== e.id);
+  }
 
   const world = { ...data.world, id: worldId, name, updated: Date.now(), version: FORMAT_VERSION, lastBackup: Date.now() };
+  if (data.world.calendar) world.calendar = cleanCalendar(data.world.calendar);
+  if (!isDay(world.currentDay)) delete world.currentDay;
   await db.putWorld(world);
   for (const { map, files } of mapRows) {
     await db.putMap(map);
@@ -205,18 +216,18 @@ export function interchangeFor(map, world, byId = new Map()) {
   const note = x => { const e = entryOf(x); return e ? (e.secret ? '' : plainText(e.body)) : (x.lore || ''); };
   const base = x => ({ note: note(x), entryId: x.entryId || null, secret: isSecret(x, byId) });
   // Secret entries never travel: their text is left out of both `note` and `entries`.
-  const linked = new Set([...o.pins, ...o.regions, ...o.routes].map(x => x.entryId).filter(Boolean));
+  const linked = new Set([...o.pins, ...o.regions, ...o.routes].flatMap(x => [x.entryId, x.factionId]).filter(Boolean));
   const entries = [...linked].map(id => byId.get(id)).filter(e => e && !e.secret).map(e => ({
-    id: e.id, type: e.type, name: e.name, aliases: e.aliases || [], tags: e.tags || [], fields: e.fields || {}, body: plainText(e.body),
+    id: e.id, type: e.type, name: e.name, color: e.color || null, aliases: e.aliases || [], tags: e.tags || [], fields: e.fields || {}, body: plainText(e.body),
   }));
   return {
     format: 'mapfold-interchange',
     version: 1,
-    source: { app: 'Mapfold', author: 'direk james', worldId: world.id, worldName: world.name, mapId: map.id, mapName: map.name, updated: map.updated },
+    source: { app: 'Mapfold', author: 'direk james', worldId: world.id, worldName: world.name, mapId: map.id, mapName: map.name, parentMapId: map.parentMapId || null, updated: map.updated },
     image: { file: 'map.png', width: map.width, height: map.height, rendered: 'rendered.png' },
-    pins: o.pins.map(p => ({ id: p.id, x: nx(p.x), y: ny(p.y), label: nameOf(p, byId), icon: p.icon, color: p.color, ...base(p) })),
+    pins: o.pins.map(p => ({ id: p.id, x: nx(p.x), y: ny(p.y), label: nameOf(p, byId), icon: p.icon, color: p.color, opensMap: p.childMapId || null, ...base(p) })),
     labels: o.labels.map(l => ({ id: l.id, x: nx(l.x), y: ny(l.y), text: l.text, style: l.style, size: +(l.size / map.height).toFixed(5), rotation: l.rotation || 0, color: l.color, secret: !!l.secret })),
-    regions: o.regions.map(r => ({ id: r.id, name: nameOf(r, byId), color: r.color, points: r.points.map(pt), ...base(r) })),
+    regions: o.regions.map(r => ({ id: r.id, name: nameOf(r, byId), color: regionColor(r, byId), factionId: r.factionId || null, points: r.points.map(pt), ...base(r) })),
     routes: o.routes.map(r => ({ id: r.id, name: nameOf(r, byId), kind: r.kind, color: r.color, points: r.points.map(pt), ...base(r) })),
     entries,
   };

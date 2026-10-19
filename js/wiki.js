@@ -2,8 +2,10 @@
 // glue that links pins, regions and routes to entries. Author: direk james
 import { db } from './db.js';
 import { $, $$, esc, toast, dialog, confirmBox } from './ui.js';
-import { icon } from './icons.js';
+import { icon, PALETTE } from './icons.js';
 import { touchWorld } from './store.js';
+import { cleanCalendar, formatDay, formatRange, byDate, isDay } from './calendar.js';
+import { dateRowHtml, bindDateRows, calendarDialog, timelineHtml } from './timeline.js';
 import {
   ENTRY_TYPES, TYPE_ORDER, newEntry, typeOf, displayName, nameOf, buildIndex, toEditText, fromEditText,
   searchEntries, allTags, parseList, renderBodyHtml, snippet, backlinksOf, unresolvedIn,
@@ -22,7 +24,7 @@ import {
 let host = null;
 const W = {
   world: null, list: [], byId: new Map(), index: new Map(),
-  selected: null, q: '', type: '', tag: '', editing: false,
+  selected: null, q: '', type: '', tag: '', editing: false, view: '', tlPlace: '',
   dirty: new Map(), timer: 0, open: false, root: null,
 };
 
@@ -34,6 +36,8 @@ export const entryMap = () => W.byId;
 export const entryList = () => W.list;
 export const linkedEntry = o => (o.entryId && W.byId.get(o.entryId)) || null;
 export const isWikiOpen = () => W.open;
+export const calendar = () => cleanCalendar(W.world?.calendar);
+export const eventsList = () => W.list.filter(e => e.type === 'event');
 
 // ------------------------------------------------------------------ data
 
@@ -41,7 +45,7 @@ export async function loadWiki(world) {
   await flushEntries();
   W.world = world;
   W.list = await db.entriesOf(world.id);
-  W.selected = null; W.q = ''; W.type = ''; W.tag = ''; W.editing = false;
+  W.selected = null; W.q = ''; W.type = ''; W.tag = ''; W.editing = false; W.view = ''; W.tlPlace = '';
   reindex();
 }
 
@@ -74,9 +78,27 @@ export async function flushEntries() {
 
 export function createEntry(type, name = '') {
   const e = newEntry(W.world.id, type, name);
+  if (type === 'faction') e.color = nextFactionColor();
   W.list.push(e);
   reindex();
   touchEntry(e);
+  return e;
+}
+
+const factionColors = () => new Set(W.list.filter(e => e.type === 'faction' && e.color).map(e => e.color));
+function nextFactionColor() {
+  const used = factionColors();
+  return (PALETTE.find(c => !used.has(c.hex)) || PALETTE[W.list.filter(e => e.type === 'faction').length % PALETTE.length]).hex;
+}
+
+/** Faction entries, A to Z, for the region inspector. */
+export function factionList() {
+  return W.list.filter(e => e.type === 'faction').sort((a, b) => displayName(a).localeCompare(displayName(b)));
+}
+
+export function newFaction(name) {
+  const e = createEntry('faction', name);
+  host.onEntriesChanged();
   return e;
 }
 
@@ -90,9 +112,11 @@ async function deleteEntry(e) {
     let changed = false;
     for (const list of Object.values(KIND_LIST)) for (const o of m.objects[list]) {
       if (o.entryId === e.id) { if (!o.name) o.name = e.name; o.entryId = null; changed = true; }
+      if (o.factionId === e.id) { o.factionId = null; changed = true; }
     }
     if (changed) { if (m === cur) host.markDirty(); else await host.saveMap(m); }
   }
+  for (const ev of W.list) if (ev.placeIds?.includes(e.id)) { ev.placeIds = ev.placeIds.filter(id => id !== e.id); touchEntry(ev); }
   W.dirty.delete(e.id);
   W.list = W.list.filter(x => x !== e);
   reindex();
@@ -103,6 +127,12 @@ async function deleteEntry(e) {
 }
 
 /** Every pin, region and route in the world that points at the entry. */
+export function territoryOf(entryId) {
+  const out = [];
+  for (const m of host.maps()) for (const o of m.objects.regions) if (o.factionId === entryId) out.push({ map: m, kind: 'region', o });
+  return out;
+}
+
 export function objectsFor(entryId) {
   const out = [];
   for (const m of host.maps()) for (const [kind, list] of Object.entries(KIND_LIST)) {
@@ -337,6 +367,7 @@ export function initWiki(h) {
         <button class="tb-icon" data-act="close" title="Back to the map (Esc)">${icon('close')}</button>
       </div>
       <label class="search"><svg class="i"><use href="#i-search"/></svg><input type="search" id="wk-search" placeholder="Search names, notes, tags" autocomplete="off"></label>
+      <div class="wk-tools"><button type="button" class="btn btn-sm" data-act="timeline" id="wk-tl">${icon('clock')}Timeline</button><button type="button" class="btn btn-sm" data-act="calendar">${icon('calendar')}Calendar</button></div>
       <div class="wk-types" id="wk-types"></div>
       <div class="wk-tags" id="wk-tags"></div>
       <div class="wk-list" id="wk-list"></div>
@@ -377,7 +408,7 @@ export function closeWiki() {
 
 function newEntryFlow(type, name = '') {
   const e = createEntry(type || W.type || 'place', name);
-  W.selected = e.id; W.editing = true; W.open = true;
+  W.view = ''; W.selected = e.id; W.editing = true; W.open = true;
   W.q = ''; W.tag = ''; $('#wk-search').value = '';
   if (!W.type && !type) W.type = '';
   renderAll();
@@ -404,9 +435,9 @@ function renderList() {
   const list = $('#wk-list');
   list.innerHTML = rows.map(e => {
     const t = typeOf(e);
-    const sub = snippet(e.body, 70) || Object.values(e.fields || {}).filter(Boolean).join(' · ') || t.name;
+    const sub = (e.type === 'event' && isDay(e.day) ? formatDay(e.day, calendar()) : '') || snippet(e.body, 70) || Object.values(e.fields || {}).filter(Boolean).join(' · ') || t.name;
     return `<button class="wk-item ${e.id === W.selected ? 'on' : ''} ${e.name ? '' : 'unnamed'}" data-id="${e.id}">
-      <span class="wk-ico">${icon(t.icon)}</span>
+      <span class="wk-ico"${e.type === 'faction' && e.color ? ` style="color:${e.color}"` : ''}>${icon(t.icon)}</span>
       <span class="wk-txt"><strong>${esc(displayName(e))}</strong><small>${esc(sub)}</small></span>
       ${e.secret ? `<span class="wk-lock" title="Secret">${icon('lock')}</span>` : ''}
     </button>`;
@@ -418,6 +449,8 @@ function renderList() {
 function renderMain() {
   const main = $('#wk-main');
   const e = W.byId.get(W.selected);
+  $('#wk-tl')?.classList.toggle('on', W.view === 'timeline' && !e);
+  if (!e && W.view === 'timeline') { renderTimeline(main); return; }
   if (!e) {
     main.innerHTML = `
       <div class="wk-welcome">
@@ -432,6 +465,23 @@ function renderMain() {
   const onMap = objectsFor(e.id);
   const back = backlinksOf(e.id, W.list, W.index);
   const unresolved = unresolvedIn(e.body, W.index);
+  const terr = e.type === 'faction' ? territoryOf(e.id) : [];
+  W._terr = terr;
+  const cal = calendar();
+  const eventRow = e.type === 'event' ? `
+        <div class="wk-event">
+          ${dateRowHtml('day', 'Happens on', e.day, cal)}
+          ${isDay(e.day) ? dateRowHtml('endDay', 'Ends on (optional)', e.endDay, cal) : ''}
+          <div class="dt-places"><span class="dt-label">Happens at</span><div class="wk-chips">
+            ${(e.placeIds || []).map(id => W.byId.get(id)).filter(Boolean).map(p => `<span class="chip">${icon(typeOf(p).icon)}<a data-entry="${p.id}" href="#">${esc(displayName(p))}</a><button type="button" class="chip-x" data-unplace="${p.id}" title="Remove" aria-label="Remove ${esc(displayName(p))}">${icon('close')}</button></span>`).join('')}
+            <button type="button" class="chip chip-add" data-act="addplace">${icon('plus')}Add a place</button></div></div>
+        </div>` : '';
+  const here = eventsList().filter(ev => (ev.placeIds || []).includes(e.id)).sort(byDate);
+  const colorRow = e.type === 'faction' ? `
+        <div class="field wk-colorfield"><span>Territory colour</span><div class="wk-color">
+          ${PALETTE.map(c => `<button type="button" class="sw ${e.color === c.hex ? 'on' : ''}" data-color="${c.hex}" title="${c.name}" style="--c:${c.hex}"><span></span></button>`).join('')}
+          <label class="sw sw-custom" title="Custom colour"><input type="color" data-color-input value="${e.color || '#9b3a32'}"><span>${icon('plus')}</span></label>
+        </div></div>` : '';
   main.innerHTML = `
     <article class="wk-article">
       <header class="wk-top">
@@ -446,6 +496,8 @@ function renderMain() {
         <label class="field"><span>Also known as</span><input data-meta="aliases" value="${esc((e.aliases || []).join(', '))}" placeholder="Other names, comma separated"></label>
         <label class="field"><span>Tags</span><input data-meta="tags" value="${esc((e.tags || []).join(', '))}" placeholder="act 1, rumour, haunted"></label>
         ${fields}
+        ${colorRow}
+        ${eventRow}
       </div>
       <section class="wk-body">
         <div class="wk-bar"><h3>Notes</h3><button type="button" class="btn btn-sm" data-act="toggle">${icon(W.editing ? 'check' : 'edit')}${W.editing ? 'Done' : 'Edit'}</button></div>
@@ -457,6 +509,8 @@ function renderMain() {
             : `<p class="wk-blank">Nothing written yet. <button class="linkish" data-act="toggle">Start writing</button></p>`)}
       </section>
       ${unresolved.length ? `<section class="wk-rel"><h3>Not written yet</h3><div class="wk-chips">${unresolved.map(n => `<button class="wl wl-new" data-new="${esc(n)}">${esc(n)}</button>`).join('')}</div></section>` : ''}
+      ${e.type === 'faction' ? `<section class="wk-rel"><h3>Territory</h3><div class="wk-chips">${terr.length ? terr.map((x, i) => `<button class="chip" data-terr="${i}"><i class="dot" style="--c:${e.color || '#999'}"></i>${esc(nameOf(x.o, W.byId) || 'Unnamed region')} <small>${esc(x.map.name)}</small></button>`).join('') : '<span class="wk-none">No regions yet. Select a region on a map and choose this faction.</span>'}</div></section>` : ''}
+      ${here.length || e.type === 'place' ? `<section class="wk-rel"><h3>Events here</h3><div class="wk-chips">${here.length ? here.map(ev => `<a class="wl" data-entry="${ev.id}" href="#">${esc(displayName(ev))}${isDay(ev.day) ? ` <small>${esc(formatDay(ev.day, cal))}</small>` : ''}</a>`).join('') : '<span class="wk-none">Nothing has happened here yet. Add this place to an Event.</span>'}</div></section>` : ''}
       <section class="wk-rel">
         <h3>On the map</h3>
         <div class="wk-chips">${onMap.length ? onMap.map((x, i) => `<button class="chip" data-show="${i}">${icon(x.kind === 'pin' ? 'pin' : x.kind)}${esc(x.map.name)}</button>`).join('') : '<span class="wk-none">Not on any map yet. Select a pin and use “Link to entry”.</span>'}</div>
@@ -472,6 +526,8 @@ function renderMain() {
 
 function bindArticle(e) {
   const main = $('#wk-main');
+  const ci = $('[data-color-input]', main);
+  if (ci) ci.oninput = () => { e.color = ci.value; touchEntry(e); host.onEntriesChanged(); renderList(); };
   const name = $('.wk-name', main);
   name.oninput = () => { e.name = name.value; reindex(); touchEntry(e); renderList(); renderFilters(); host.onEntriesChanged(); };
   $$('[data-field]', main).forEach(i => i.oninput = () => { (e.fields ||= {})[i.dataset.field] = i.value; touchEntry(e); renderList(); });
@@ -481,6 +537,15 @@ function bindArticle(e) {
     touchEntry(e);
     if (i.dataset.meta === 'tags') renderFilters();
   });
+  const evBox = $('.wk-event', main);
+  if (evBox) {
+    const cal = calendar();
+    bindDateRows(evBox, cal, k => (k === 'endDay' ? e.day + 1 : isDay(W.world.currentDay) ? W.world.currentDay : 0), (key, day) => {
+      if (key === 'day') { e.day = day; if (day === null) e.endDay = null; else if (isDay(e.endDay) && e.endDay <= day) e.endDay = null; }
+      else e.endDay = day === null || day <= e.day ? null : day;
+      touchEntry(e); renderMain(); renderList();
+    });
+  }
   const ta = $('.wk-text', main);
   if (ta) {
     attachLinkComplete(ta);
@@ -499,7 +564,7 @@ function setEditing(on) {
   renderMain();
 }
 
-function select(id) { W.selected = id; W.editing = false; renderList(); renderMain(); $('#wk-list .wk-item.on')?.scrollIntoView({ block: 'nearest' }); }
+function select(id) { W.view = ''; W.selected = id; W.editing = false; renderList(); renderMain(); $('#wk-list .wk-item.on')?.scrollIntoView({ block: 'nearest' }); }
 
 async function onWikiClick(ev) {
   const t = ev.target;
@@ -521,10 +586,19 @@ async function onWikiClick(ev) {
     W.selected = made.id; W.editing = true; renderAll();
     return;
   }
+  const col = t.closest('button[data-color]');
+  if (col) { const f = W.byId.get(W.selected); if (f) { f.color = col.dataset.color; touchEntry(f); renderMain(); host.onEntriesChanged(); } return; }
+  const terrChip = t.closest('[data-terr]');
+  if (terrChip) { const x = W._terr[+terrChip.dataset.terr]; if (x) { closeWiki(); host.jumpTo(x.map.id, x.kind, x.o.id); } return; }
   const show = t.closest('[data-show]');
   if (show) { const x = W._onMap[+show.dataset.show]; if (x) { closeWiki(); host.jumpTo(x.map.id, x.kind, x.o.id); } return; }
+  const unplace = t.closest('[data-unplace]');
+  if (unplace) { const ev = W.byId.get(W.selected); if (ev) { ev.placeIds = (ev.placeIds || []).filter(id => id !== unplace.dataset.unplace); touchEntry(ev); renderMain(); } return; }
   const act = t.closest('[data-act]')?.dataset.act;
   const e = W.byId.get(W.selected);
+  if (act === 'timeline') { W.view = W.view === 'timeline' && !e ? '' : 'timeline'; W.selected = null; W.editing = false; renderList(); renderMain(); return; }
+  if (act === 'calendar') { editCalendar(); return; }
+  if (act === 'addplace' && e) { addPlace(e); return; }
   if (act === 'clear') { W.q = ''; W.type = ''; W.tag = ''; $('#wk-search').value = ''; renderAll(); }
   else if (act === 'toggle') setEditing(!W.editing);
   else if (act === 'secret' && e) { e.secret = !e.secret; touchEntry(e); renderList(); renderMain(); host.onEntriesChanged(); }
@@ -535,6 +609,47 @@ async function onWikiClick(ev) {
     const st = t.closest('[data-settype]');
     if (st && e) { e.type = st.dataset.settype; touchEntry(e); renderAll(); }
   }
+}
+
+// ------------------------------------------------------------------ calendar and timeline
+
+async function editCalendar() {
+  const res = await calendarDialog(W.world);
+  if (!res) return;
+  W.world.calendar = res.calendar;
+  W.world.currentDay = res.currentDay;
+  W.world.updated = Date.now();
+  try { await db.putWorld(W.world); } catch (err) { console.error(err); toast('Saving the calendar failed. Your browser may be out of storage space.', 'bad', 6000); return; }
+  toast('Calendar saved.');
+  renderList(); renderMain();
+}
+
+async function addPlace(ev) {
+  const pick = await pickEntry({ title: 'Where did it happen?', create: { type: 'place', name: '' } });
+  if (!pick) return;
+  const id = pick.create ? createEntry(pick.create.type, pick.create.name).id : pick.id;
+  if (id === ev.id) return;
+  if (!(ev.placeIds ||= []).includes(id)) ev.placeIds.push(id);
+  touchEntry(ev); renderAll();
+}
+
+function renderTimeline(main) {
+  const cal = calendar();
+  const events = eventsList();
+  const placeIds = new Set(events.flatMap(e => e.placeIds || []));
+  const places = [...placeIds].map(id => W.byId.get(id)).filter(Boolean).sort((a, b) => displayName(a).localeCompare(displayName(b)));
+  if (W.tlPlace && !placeIds.has(W.tlPlace)) W.tlPlace = '';
+  main.innerHTML = `
+    <div class="tl">
+      <header class="tl-head">
+        <div><h2>${icon('clock')}Timeline</h2><p>${esc(cal.name)}${isDay(W.world.currentDay) ? ` · today is ${esc(formatDay(W.world.currentDay, cal))}` : ''}</p></div>
+        ${places.length ? `<label class="tl-filter"><span>Place</span><select id="tl-place"><option value="">All places</option>${places.map(p => `<option value="${p.id}" ${p.id === W.tlPlace ? 'selected' : ''}>${esc(displayName(p))}</option>`).join('')}</select></label>` : ''}
+        <button type="button" class="btn btn-gilt btn-sm" data-start="event">${icon('plus')}New event</button>
+      </header>
+      ${timelineHtml(events, cal, { today: W.world.currentDay, placeId: W.tlPlace, byId: W.byId })}
+    </div>`;
+  $('#tl-place', main)?.addEventListener('change', e => { W.tlPlace = e.target.value; renderTimeline(main); });
+  $$('.tl-card', main).forEach(c => c.onclick = () => select(c.dataset.id));
 }
 
 // ------------------------------------------------------------------ hover preview

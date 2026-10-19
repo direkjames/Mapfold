@@ -21,6 +21,11 @@ export const STAMPS = {
   pines:     { name: 'Pines' },
   reeds:     { name: 'Reeds' },
   waves:     { name: 'Waves' },
+  dunes:     { name: 'Dunes' },
+  marsh:     { name: 'Marsh' },
+  town:      { name: 'Town' },
+  castle:    { name: 'Castle' },
+  ruins:     { name: 'Ruins' },
   ink:       { name: 'Ink pen' },
 };
 
@@ -193,9 +198,135 @@ export function drawStamp(ctx, kind, x, y, s, strength, rnd) {
       ctx.quadraticCurveTo(ox + w / 4, oy - s * 0.14, ox + w / 2, oy);
       ctx.stroke();
     }
+  } else if (kind === 'dunes') {
+    const w = s * (0.9 + rnd() * 0.3), h = s * (0.26 + rnd() * 0.1);
+    ctx.fillStyle = '#ecd8a4';
+    ctx.beginPath();
+    ctx.moveTo(x - w / 2, y);
+    ctx.bezierCurveTo(x - w * 0.3, y - h * 1.5, x - w * 0.05, y - h * 1.2, x + w * 0.05, y - h * 0.5);
+    ctx.bezierCurveTo(x + w * 0.2, y - h * 1.2, x + w * 0.38, y - h * 0.9, x + w / 2, y);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x - w / 2, y);
+    ctx.bezierCurveTo(x - w * 0.3, y - h * 1.5, x - w * 0.05, y - h * 1.2, x + w * 0.05, y - h * 0.5);
+    ctx.bezierCurveTo(x + w * 0.2, y - h * 1.2, x + w * 0.38, y - h * 0.9, x + w / 2, y);
+    ctx.stroke();
+    ctx.lineWidth = lw * 0.55;
+    line(ctx, [x - w * 0.1, y - h * 0.9, x - w * 0.04, y - h * 0.45, x - w * 0.12, y - h * 0.1]);
+    line(ctx, [x + w * 0.22, y - h * 0.6, x + w * 0.26, y - h * 0.25]);
+  } else if (kind === 'marsh') {
+    ctx.fillStyle = 'rgba(134,167,173,0.75)';
+    ctx.beginPath(); ctx.ellipse(x, y - s * 0.06, s * 0.36, s * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#4e5a35';
+    ctx.lineWidth = lw * 0.8;
+    for (let i = -1; i <= 1; i++) {
+      const bx = x + i * s * 0.2 + (rnd() - 0.5) * s * 0.06, by = y - s * 0.02;
+      for (let k = -1; k <= 1; k++) {
+        ctx.beginPath(); ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(bx + k * s * 0.04, by - s * 0.14, bx + k * s * 0.09, by - s * (0.24 + rnd() * 0.06)); ctx.stroke();
+      }
+    }
+  } else if (kind === 'town') {
+    const houses = [[-0.3, 0.02, 0.26], [0.04, -0.04, 0.3], [0.33, 0.03, 0.24]];
+    for (const [ox, oy, k] of houses) {
+      const hw = s * k, hh = s * k * 0.7, bx = x + ox * s, by = y + oy * s;
+      ctx.fillStyle = '#efe4c8';
+      ctx.fillRect(bx - hw / 2, by - hh, hw, hh); ctx.strokeRect(bx - hw / 2, by - hh, hw, hh);
+      ctx.fillStyle = '#a9553f';
+      ctx.beginPath(); ctx.moveTo(bx - hw * 0.64, by - hh); ctx.lineTo(bx, by - hh - hw * 0.55); ctx.lineTo(bx + hw * 0.64, by - hh); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = INK; ctx.fillRect(bx - hw * 0.1, by - hh * 0.5, hw * 0.2, hh * 0.5);
+    }
+  } else if (kind === 'castle') {
+    const w = s * 0.95, h = s * 0.62, kw = w * 0.42, kh = h * 1.15;
+    ctx.fillStyle = '#e6dbbd';
+    const tower = (cx, tw, th) => {
+      ctx.fillRect(cx - tw / 2, y - th, tw, th); ctx.strokeRect(cx - tw / 2, y - th, tw, th);
+      ctx.fillStyle = '#7a8a9a';
+      ctx.beginPath(); ctx.moveTo(cx - tw * 0.64, y - th); ctx.lineTo(cx, y - th - tw * 1.1); ctx.lineTo(cx + tw * 0.64, y - th); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e6dbbd';
+    };
+    ctx.fillRect(x - w / 2, y - h * 0.62, w, h * 0.62); ctx.strokeRect(x - w / 2, y - h * 0.62, w, h * 0.62);
+    for (let i = 0; i < 6; i++) { const cx = x - w / 2 + (i + 0.5) * (w / 6); ctx.fillRect(cx - w * 0.03, y - h * 0.62 - h * 0.1, w * 0.06, h * 0.1); ctx.strokeRect(cx - w * 0.03, y - h * 0.62 - h * 0.1, w * 0.06, h * 0.1); }
+    tower(x - w / 2, w * 0.2, h * 0.95);
+    tower(x + w / 2, w * 0.2, h * 0.95);
+    tower(x, kw * 0.7, kh);
+    ctx.fillStyle = INK;
+    ctx.beginPath(); ctx.moveTo(x - w * 0.07, y); ctx.lineTo(x - w * 0.07, y - h * 0.22); ctx.arc(x, y - h * 0.22, w * 0.07, Math.PI, 0); ctx.lineTo(x + w * 0.07, y); ctx.closePath(); ctx.fill();
+  } else if (kind === 'ruins') {
+    ctx.fillStyle = '#d9cdb0';
+    const walls = [[-0.34, 0.2, 0.34], [-0.04, 0.26, 0.5], [0.3, 0.17, 0.3]];
+    for (const [ox, ww, hh] of walls) {
+      const bx = x + ox * s, w = s * ww, h = s * hh * (0.8 + rnd() * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(bx - w / 2, y); ctx.lineTo(bx - w / 2, y - h * 0.8); ctx.lineTo(bx - w * 0.15, y - h); ctx.lineTo(bx, y - h * 0.62);
+      ctx.lineTo(bx + w * 0.22, y - h * 0.86); ctx.lineTo(bx + w / 2, y - h * 0.5); ctx.lineTo(bx + w / 2, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = lw * 0.55; line(ctx, [bx - w * 0.2, y - h * 0.5, bx + w * 0.2, y - h * 0.5]); ctx.lineWidth = lw;
+    }
+    ctx.fillStyle = INK;
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(x + (rnd() - 0.5) * s * 0.9, y + s * 0.03 + rnd() * s * 0.04, Math.max(1, s * 0.012), 0, Math.PI * 2); ctx.fill(); }
   }
   ctx.restore();
 }
 
 /** Spacing between stamps along a stroke, as a fraction of size. */
-export const STAMP_SPACING = { mountains: 0.62, hills: 0.7, trees: 0.42, pines: 0.36, reeds: 0.6, waves: 1.1 };
+export const STAMP_SPACING = { mountains: 0.62, hills: 0.7, trees: 0.42, pines: 0.36, reeds: 0.6, waves: 1.1, dunes: 0.9, marsh: 0.75, town: 1.1, castle: 1.4, ruins: 1.0 };
+
+// ---------- coastline ----------
+
+const nearestPaint = (() => {
+  const list = Object.entries(PAINTS).map(([k, p]) => { const n = parseInt(p.color.slice(1), 16); return [k, (n >> 16) & 255, (n >> 8) & 255, n & 255]; });
+  return (r, g, b) => {
+    let best = '', bd = Infinity;
+    for (const [k, pr, pg, pb] of list) { const d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2; if (d < bd) { bd = d; best = k; } }
+    return bd < 45 * 45 * 3 ? best : '';
+  };
+})();
+
+/**
+ * Ink a coastline where water paint meets anything else. Works in 256-row bands so a 4096 px map never
+ * needs more than one extra full-size canvas. If no water is painted, the empty (unpainted) area counts as sea.
+ * Returns the number of water pixels found (0 means nothing was drawn).
+ */
+export function outlineCoast(ctx, W, H, { width = Math.max(1.6, Math.min(W, H) / 650), alpha = 0.9 } = {}) {
+  const BAND = 256;
+  const mask = document.createElement('canvas');
+  mask.width = W; mask.height = H;
+  const mctx = mask.getContext('2d');
+  const [ir, ig, ib] = [0x3a, 0x2c, 0x1e];
+  let water = 0;
+  const paintSea = (useEmpty) => {
+    mctx.clearRect(0, 0, W, H);
+    water = 0;
+    for (let y0 = 0; y0 < H; y0 += BAND) {
+      const h = Math.min(BAND, H - y0);
+      const src = ctx.getImageData(0, y0, W, h), out = mctx.createImageData(W, h);
+      const a = src.data, o = out.data;
+      for (let i = 0; i < a.length; i += 4) {
+        let sea = false;
+        if (a[i + 3] < 48) sea = useEmpty;
+        else { const k = nearestPaint(a[i], a[i + 1], a[i + 2]); sea = k === 'water' || k === 'deep'; }
+        if (sea) { o[i] = ir; o[i + 1] = ig; o[i + 2] = ib; o[i + 3] = 255; water++; }
+      }
+      mctx.putImageData(out, 0, y0);
+    }
+  };
+  paintSea(false);
+  if (!water) paintSea(true);
+  if (!water || water >= W * H * 0.999) return 0;
+  const ring = document.createElement('canvas');
+  ring.width = W; ring.height = H;
+  const rctx = ring.getContext('2d');
+  const STEPS = 16;
+  for (let i = 0; i < STEPS; i++) {
+    const t = (i / STEPS) * Math.PI * 2;
+    rctx.drawImage(mask, Math.round(Math.cos(t) * width), Math.round(Math.sin(t) * width));
+  }
+  rctx.globalCompositeOperation = 'destination-out';
+  rctx.drawImage(mask, 0, 0);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(ring, 0, 0);
+  ctx.restore();
+  mask.width = mask.height = ring.width = ring.height = 0; // release the big buffers now
+  return water;
+}
