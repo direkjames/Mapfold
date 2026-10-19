@@ -62,6 +62,13 @@ Not included: stamps are painted into the terrain image, so they can't be picked
 - **Secret text.** Wrap anything in `||double bars||` inside a note and only you see it. It is highlighted in the wiki and left out of anything that leaves the app. A forgotten closing `||` hides the rest of the note rather than leaking it.
 - Imports are now more forgiving: a world file missing its grid, scale or base map gets safe defaults instead of crashing the editor.
 
+## What's new in 1.5 (Phase 4: the Inkfold link)
+
+- **Share with Inkfold.** *Export → Share with Inkfold* keeps every map of the world available to Inkfold in the same browser (both apps live on `direkjames.github.io`). In Inkfold, open **Maps → Import from Mapfold**. It brings across the picture, scale, pins, labels, regions, routes and nested maps, and adds your *Place* entries to Inkfold's story bible.
+- **Stays up to date.** Edit a shared map here and the share refreshes itself a few seconds later. In Inkfold, **Check for update** refreshes what came from Mapfold, removes what you deleted here, and leaves anything drawn in Inkfold alone. Maps deleted here are un-shared, and **Stop sharing** removes everything.
+- **Secrets never cross.** Secret pins, labels, regions, routes and entries, and `||secret text||`, are left out of the share entirely. Sharing is never written into `.mapfold` files.
+- The old file route is still there as *Inkfold file* (same secrets rule).
+
 ## Files
 
 ```
@@ -78,6 +85,7 @@ js/editor.js          the editor: view, tools, inspector, history, saving, expor
 js/render.js          shared geometry and the canvas renderer used for exports
 js/terrain.js         paints, stamps, eraser
 js/parchment.js       procedural parchment backgrounds
+js/link.js            the Inkfold share (publishes to the mapfold-link database)
 js/store.js           world/map model, .mapfold export/import (id remapping), Inkfold interchange
 js/nest.js            map nesting: breadcrumb trail, outline, loop-safe parent choices (no DOM)
 js/calendar.js        custom calendars: day numbers to dates and back (no DOM)
@@ -96,7 +104,7 @@ js/ui.js              dialogs, toasts, helpers
 
 ## Inkfold interchange (for the Inkfold importer)
 
-"Export → Send to Inkfold" downloads `<map>.inkfold-map.zip` containing:
+"Export → Inkfold file" downloads `<map>.inkfold-map.zip` containing:
 
 | File | What it is |
 | --- | --- |
@@ -110,8 +118,9 @@ Inkfold should ignore any field it doesn't know.
 ```json
 {
   "format": "mapfold-interchange",
-  "version": 1,
-  "source": { "app": "Mapfold", "author": "direk james", "worldId": "...", "worldName": "...", "mapId": "...", "mapName": "..." },
+  "version": 2,
+  "source": { "app": "Mapfold", "author": "direk james", "worldId": "...", "worldName": "...", "mapId": "...", "mapName": "...", "parentMapId": null, "revision": 1700000000000 },
+  "scale": { "perCell": 10, "unit": "mi", "cellPx": 64 },
   "image": { "file": "map.png", "width": 3200, "height": 2400, "rendered": "rendered.png" },
   "pins":    [{ "id": "...", "x": 0.47, "y": 0.52, "label": "Varn", "icon": "city", "color": "#9b3a32", "note": "" }],
   "labels":  [{ "id": "...", "x": 0.5, "y": 0.1, "text": "Thornwake", "style": "realm", "size": 0.03, "rotation": 0, "color": null }],
@@ -121,7 +130,7 @@ Inkfold should ignore any field it doesn't know.
 }
 ```
 
-`pins`, `regions` and `routes` may carry an `entryId` pointing into `entries` (only public entries are included). Every pin, label, region and route has a `secret` flag (GM-only). `rendered.png` is drawn without secret items; the JSON keeps them, flagged, so Inkfold can decide what to show. `source.updated` is the map's last-saved time in milliseconds. `labels[].size` is a fraction of image height. `route.kind` is `road`, `trail`, `river` or `sea`.
+`pins`, `regions` and `routes` may carry an `entryId` pointing into `entries` (only public entries are included, with `||secret||` text removed). Secret pins, labels, regions, routes and entries are omitted from the package altogether (Inkfold has no secret flag). Pins may carry `opensMap` (a nested map's id). Regions add `fill`, `border` and `smooth`; routes add `width` and `smooth`. `source.updated` is the map's last-saved time in milliseconds. `labels[].size` is a fraction of image height. `route.kind` is `road`, `trail`, `river` or `sea`.
 IDs are stable, so Inkfold can re-import an updated map and match existing pins.
 
 ## `.mapfold` world file
