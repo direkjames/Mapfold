@@ -37,6 +37,14 @@ Press `?` in the editor for every keyboard shortcut.
 - **Fonts are bundled**, so lettering looks right on the very first offline visit, and map exports no longer fall back to a default font.
 - Under the hood: database version 2 with a wiki `entries` store (used from Phase 2B), world file version 2, and stricter checks on imported files (damaged or oversized data is rejected or clamped).
 
+## What's new in 1.2 (Phase 2B: the wiki)
+
+- **A wiki for every world.** Press **W** (or the Wiki button) to open it. Entries come in seven types (Place, Character, Faction, Item, Lore, Event, Note), each with its own short fields, aliases, tags and free-form notes. Notes support `# headings`, `- lists`, `**bold**` and `*italic*`.
+- **`[[Links]]`.** Type `[[` while writing to link to another entry, or to create one that doesn't exist yet. Links are stored by id, so renaming an entry never breaks them. Hover a link for a preview. Every entry shows where it is **On the map** and what it is **Mentioned in**.
+- **Search everywhere.** The wiki searches names, aliases, tags, notes and fields, with type and tag filters. **Ctrl/Cmd + K** jumps to any entry, pin, region or map (Shift + Enter shows an entry on the map).
+- **Pins, regions and routes use entries.** Select one and use *Link to entry*, or just start writing lore: an entry is created for you. The name on the map follows the entry. Lore you wrote on pins in earlier versions is moved into entries the first time a world opens.
+- **Secret entries** hide everything linked to them from player exports. The Inkfold package carries each linked entry's id, name, tags and plain-text notes (secret ones are left out), so Inkfold can reference places by id.
+
 ## Files
 
 ```
@@ -54,7 +62,8 @@ js/render.js          shared geometry and the canvas renderer used for exports
 js/terrain.js         paints, stamps, eraser
 js/parchment.js       procedural parchment backgrounds
 js/store.js           world/map model, .mapfold export/import (id remapping), Inkfold interchange
-js/entries.js         wiki entry model and [[id|name]] link helpers
+js/entries.js         wiki entry model: types, [[id|name]] links, search, reading view (no DOM)
+js/wiki.js            the wiki panel, quick switcher, [[ typing help, linking pins to entries
 js/db.js              IndexedDB wrapper
 js/zip.js             small ZIP writer/reader (no dependencies)
 js/icons.js           UI icons, pin symbols, colour palette
@@ -83,11 +92,12 @@ Inkfold should ignore any field it doesn't know.
   "pins":    [{ "id": "...", "x": 0.47, "y": 0.52, "label": "Varn", "icon": "city", "color": "#9b3a32", "note": "" }],
   "labels":  [{ "id": "...", "x": 0.5, "y": 0.1, "text": "Thornwake", "style": "realm", "size": 0.03, "rotation": 0, "color": null }],
   "regions": [{ "id": "...", "name": "...", "color": "#9b3a32", "points": [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]], "note": "" }],
-  "routes":  [{ "id": "...", "name": "...", "kind": "road", "color": null, "points": [[0.1, 0.2], [0.4, 0.5]], "note": "", "secret": false }]
+  "routes":  [{ "id": "...", "name": "...", "kind": "road", "color": null, "points": [[0.1, 0.2], [0.4, 0.5]], "note": "", "entryId": null, "secret": false }],
+  "entries": [{ "id": "...", "type": "place", "name": "Varn", "aliases": [], "tags": ["port"], "fields": { "kind": "City" }, "body": "Plain text, links shown as names." }]
 }
 ```
 
-Every pin, label, region and route has a `secret` flag (GM-only). `rendered.png` is drawn without secret items; the JSON keeps them, flagged, so Inkfold can decide what to show. `source.updated` is the map's last-saved time in milliseconds. `labels[].size` is a fraction of image height. `route.kind` is `road`, `trail`, `river` or `sea`.
+`pins`, `regions` and `routes` may carry an `entryId` pointing into `entries` (only public entries are included). Every pin, label, region and route has a `secret` flag (GM-only). `rendered.png` is drawn without secret items; the JSON keeps them, flagged, so Inkfold can decide what to show. `source.updated` is the map's last-saved time in milliseconds. `labels[].size` is a fraction of image height. `route.kind` is `road`, `trail`, `river` or `sea`.
 IDs are stable, so Inkfold can re-import an updated map and match existing pins.
 
 ## `.mapfold` world file
