@@ -65,7 +65,7 @@ export const db = {
   getMap(id) { return tx('maps', 'readonly', s => wrap(s.get(id))); },
   putMap(m) { return tx('maps', 'readwrite', s => { s.put(m); }); },
   async deleteMap(id) {
-    await tx('blobs', 'readwrite', s => { s.delete('terrain:' + id); s.delete('base:' + id); });
+    await tx('blobs', 'readwrite', s => { s.delete('terrain:' + id); s.delete('base:' + id); s.delete('fog:' + id); });
     return tx('maps', 'readwrite', s => { s.delete(id); });
   },
   entriesOf(worldId) {
