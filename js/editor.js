@@ -3,6 +3,7 @@ import { db, uid } from './db.js';
 import { $, $$, esc, toast, dialog, confirmBox, promptBox, download, safeName } from './ui.js';
 import { icon, pinGlyph, PIN_ICONS, PIN_BODY, PIN_HEAD_Y, PALETTE } from './icons.js';
 import { paintParchment } from './parchment.js';
+import { publishMaps, pruneWorld, forgetWorld } from './link.js';
 import { initTabletop, attachFog, fogBlob, fogCanvas, toolChanged, pointerDown as tableDown, pointerMove as tableMove, pointerUp as tableUp, applyFogHistory, fogPanel, fogBrushPx, partyPanel, regionFogHtml, bindRegionFog, renderParty, changed as tableChanged, viewChanged, sessionEnded } from './tabletop.js';
 import { PAINTS, STAMPS, STAMP_SPACING, paintDab, eraseDab, drawStamp, grain, outlineCoast, INK } from './terrain.js';
 import {
@@ -115,7 +116,12 @@ export function initEditor(onExit) {
   $('#places-search').oninput = renderPlaces;
 
   const menu = $('#menu-export');
-  $('#btn-export').onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+  $('#btn-export').onclick = e => {
+    e.stopPropagation(); menu.hidden = !menu.hidden;
+    const on = !!E.world?.inkfold?.on;
+    $('[data-export=unlink]', menu).hidden = !on;
+    $('[data-export=link] strong', menu).textContent = on ? 'Shared with Inkfold. Update now' : 'Share with Inkfold';
+  };
   document.addEventListener('click', e => { if (!e.target.closest('.menu-wrap')) menu.hidden = true; });
   $$('button[data-export]', menu).forEach(b => b.onclick = () => { menu.hidden = true; doExport(b.dataset.export); });
 
@@ -157,6 +163,7 @@ async function exitEditor() {
 /** An entry was renamed or made secret: redraw the names and styles on the map. */
 function onEntriesChanged() {
   if (!E.map) return;
+  if (E.world?.inkfold?.on) scheduleLink();
   renderRegions(); renderPins(); renderHandles(); renderPlaces(); renderLegend(); tableChanged();
 }
 
@@ -681,6 +688,7 @@ async function deleteMap(id) {
   await db.deleteMap(id);
   if (E.world.party?.mapId === id) { delete E.world.party; await db.putWorld(E.world); renderParty(); }
   E.maps = E.maps.filter(x => x.id !== id);
+  if (E.world?.inkfold?.on) scheduleLink();
   for (const x of E.maps) {
     let changed = false;
     if (x.parentMapId === id) { x.parentMapId = null; changed = true; }
@@ -887,6 +895,7 @@ async function flush() {
       if (Date.now() - E.lastThumb > 4000) { E.lastThumb = Date.now(); await saveThumb(map); }
       await touchWorld(map.worldId);
       if (E.map === map && !E.dirtyMap && !E.dirtyTerrain && !E.dirtyFog) setSaveState('saved');
+      if (E.world?.inkfold?.on) scheduleLink();
     } catch (err) {
       console.error(err);
       setSaveState('error');
@@ -1745,6 +1754,34 @@ function showHelp() {
   });
 }
 
+// ------------------------------------------------------------------ Inkfold link
+
+let linkTimer = 0, linkBusy = false;
+function scheduleLink() {
+  clearTimeout(linkTimer);
+  linkTimer = setTimeout(syncLink, 4000);
+}
+
+/** Refresh the packages Inkfold reads. Quiet unless it fails. */
+async function syncLink({ force = false } = {}) {
+  if (linkBusy) { scheduleLink(); return 0; }
+  const world = E.world;
+  if (!world?.inkfold?.on) return 0;
+  linkBusy = true;
+  try {
+    await flushEntries();
+    await ensureFonts();
+    const entries = await db.entriesOf(world.id);
+    const done = await publishMaps(world, E.maps, entries, { force });
+    await pruneWorld(world.id, E.maps.map(m => m.id));
+    return done.length;
+  } catch (err) {
+    console.error(err);
+    toast('Sharing with Inkfold failed: ' + (err.message || 'unknown error'), 'bad', 5000);
+    return 0;
+  } finally { linkBusy = false; }
+}
+
 // ------------------------------------------------------------------ export
 
 async function renderToBlob(opts, maxSide = 8192) {
@@ -1781,6 +1818,14 @@ async function doExport(kind) {
       download(blob, `${safeName(E.world.name)}-${safeName(E.map.name)}${players ? '' : '-gm'}.png`);
       const hidden = players ? secretCount(E.map) : 0;
       toast(hidden ? `Map image saved. ${hidden} secret ${hidden === 1 ? 'item was' : 'items were'} left out.` : 'Map image saved', 'good', hidden ? 4200 : 2800);
+    } else if (kind === 'link') {
+      if (!E.world.inkfold?.on) { E.world.inkfold = { on: true, since: Date.now() }; E.world.updated = Date.now(); await db.putWorld(E.world); }
+      await syncLink({ force: true });
+      toast(`${E.maps.length} ${E.maps.length === 1 ? 'map is' : 'maps are'} shared with Inkfold. In Inkfold, open Maps and choose Import from Mapfold.`, 'good', 6000);
+    } else if (kind === 'unlink') {
+      E.world.inkfold = { on: false }; E.world.updated = Date.now(); await db.putWorld(E.world);
+      await forgetWorld(E.world.id);
+      toast('Mapfold no longer shares this world with Inkfold.');
     } else if (kind === 'inkfold') {
       await ensureFonts();
       const plain = await renderToBlob({ only: ['base', 'terrain'] });

@@ -2,6 +2,7 @@
 import { db } from './db.js';
 import { $, $$, esc, toast, dialog, confirmBox, promptBox, download, safeName, timeAgo } from './ui.js';
 import { icon } from './icons.js';
+import { forgetWorld } from './link.js';
 import { BLANK_SIZES, createWorld, exportWorld, importWorld, newMapRecord, imageSize } from './store.js';
 import { PARCHMENTS, paintParchment } from './parchment.js';
 
@@ -112,7 +113,7 @@ export async function renderShelf() {
         renderShelf();
       } else if (b.dataset.act === 'delete') {
         const ok = await confirmBox('Delete this world?', `<strong>${esc(w.name)}</strong> and all of its maps will be removed from this browser. Export it first if you want a backup.`, { okLabel: 'Delete world' });
-        if (ok) { await db.deleteWorld(id); toast('World deleted'); renderShelf(); }
+        if (ok) { await forgetWorld(id).catch(() => {}); await db.deleteWorld(id); toast('World deleted'); renderShelf(); }
       }
     });
   });

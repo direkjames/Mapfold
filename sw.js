@@ -1,8 +1,8 @@
 // Mapfold service worker — offline cache. Author: direk james
-const VERSION = 'mapfold-v1.4.0';
+const VERSION = 'mapfold-v1.5.0';
 const CORE = [
   './', 'index.html', 'player.html', 'manifest.webmanifest', 'css/styles.css', 'css/player.css', 'css/fonts.css',
-  'js/app.js', 'js/calendar.js', 'js/db.js', 'js/editor.js', 'js/entries.js', 'js/icons.js', 'js/library.js', 'js/nest.js', 'js/parchment.js', 'js/player.js',
+  'js/app.js', 'js/calendar.js', 'js/db.js', 'js/editor.js', 'js/entries.js', 'js/icons.js', 'js/library.js', 'js/link.js', 'js/nest.js', 'js/parchment.js', 'js/player.js',
   'js/render.js', 'js/store.js', 'js/table.js', 'js/tabletop.js', 'js/terrain.js', 'js/timeline.js', 'js/ui.js', 'js/wiki.js', 'js/zip.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'fonts/alegreya-italic-400-latin-ext.woff2',

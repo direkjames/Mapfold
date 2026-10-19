@@ -200,6 +200,7 @@ export async function importWorld(file) {
   const world = { ...data.world, id: worldId, name, updated: Date.now(), version: FORMAT_VERSION, lastBackup: Date.now() };
   if (data.world.calendar) world.calendar = cleanCalendar(data.world.calendar);
   if (!isDay(world.currentDay)) delete world.currentDay;
+  delete world.inkfold; // sharing with Inkfold is switched on per browser, never carried in a file
   const pt = data.world.party;
   const pmap = pt && typeof pt === 'object' ? ids.maps.get(pt.mapId) : null;
   if (pmap && Number.isFinite(+pt.x) && Number.isFinite(+pt.y)) {
@@ -223,7 +224,7 @@ export async function importWorld(file) {
  * Coordinates are normalised 0–1 against the map image so they survive resizing.
  * Inkfold reads pins, labels, regions and routes and ignores anything else.
  */
-export function interchangeFor(map, world, byId = new Map()) {
+export function interchangeFor(map, world, byId = new Map(), { hideSecret = true } = {}) {
   const nx = x => +(x / map.width).toFixed(5);
   const ny = y => +(y / map.height).toFixed(5);
   const pt = p => [nx(p[0]), ny(p[1])];
@@ -231,20 +232,24 @@ export function interchangeFor(map, world, byId = new Map()) {
   const entryOf = x => (x.entryId && byId.get(x.entryId)) || null;
   const note = x => { const e = entryOf(x); return e ? (e.secret ? '' : plainText(stripSecrets(e.body))) : (x.lore || ''); };
   const base = x => ({ note: note(x), entryId: x.entryId || null, secret: isSecret(x, byId) });
+  // Inkfold has no secret flag, so secret items are left out of the package altogether, not just flagged.
+  const keep = x => !hideSecret || !isSecret(x, byId);
+  const pins = o.pins.filter(keep), labels = o.labels.filter(keep), regions = o.regions.filter(keep), routes = o.routes.filter(keep);
   // Secret entries never travel: their text is left out of both `note` and `entries`.
-  const linked = new Set([...o.pins, ...o.regions, ...o.routes].flatMap(x => [x.entryId, x.factionId]).filter(Boolean));
+  const linked = new Set([...pins, ...regions, ...routes].flatMap(x => [x.entryId, x.factionId]).filter(Boolean));
   const entries = [...linked].map(id => byId.get(id)).filter(e => e && !e.secret).map(e => ({
     id: e.id, type: e.type, name: e.name, color: e.color || null, aliases: e.aliases || [], tags: e.tags || [], fields: e.fields || {}, body: plainText(stripSecrets(e.body)),
   }));
   return {
     format: 'mapfold-interchange',
-    version: 1,
-    source: { app: 'Mapfold', author: 'direk james', worldId: world.id, worldName: world.name, mapId: map.id, mapName: map.name, parentMapId: map.parentMapId || null, updated: map.updated },
+    version: 2,
+    source: { app: 'Mapfold', author: 'direk james', worldId: world.id, worldName: world.name, mapId: map.id, mapName: map.name, parentMapId: map.parentMapId || null, updated: map.updated, revision: map.updated },
     image: { file: 'map.png', width: map.width, height: map.height, rendered: 'rendered.png' },
-    pins: o.pins.map(p => ({ id: p.id, x: nx(p.x), y: ny(p.y), label: nameOf(p, byId), icon: p.icon, color: p.color, opensMap: p.childMapId || null, ...base(p) })),
-    labels: o.labels.map(l => ({ id: l.id, x: nx(l.x), y: ny(l.y), text: l.text, style: l.style, size: +(l.size / map.height).toFixed(5), rotation: l.rotation || 0, color: l.color, secret: !!l.secret })),
-    regions: o.regions.map(r => ({ id: r.id, name: nameOf(r, byId), color: regionColor(r, byId), factionId: r.factionId || null, points: r.points.map(pt), ...base(r) })),
-    routes: o.routes.map(r => ({ id: r.id, name: nameOf(r, byId), kind: r.kind, color: r.color, points: r.points.map(pt), ...base(r) })),
+    scale: { perCell: map.scale.perCell, unit: map.scale.unit, cellPx: map.grid.size },
+    pins: pins.map(p => ({ id: p.id, x: nx(p.x), y: ny(p.y), label: nameOf(p, byId), icon: p.icon, color: p.color, opensMap: p.childMapId || null, ...base(p) })),
+    labels: labels.map(l => ({ id: l.id, x: nx(l.x), y: ny(l.y), text: l.text, style: l.style, size: +(l.size / map.height).toFixed(5), rotation: l.rotation || 0, color: l.color, secret: !!l.secret })),
+    regions: regions.map(r => ({ id: r.id, name: nameOf(r, byId), color: regionColor(r, byId), factionId: r.factionId || null, fill: r.fill ?? 0.18, border: r.border || 'solid', smooth: !!r.smooth, points: r.points.map(pt), ...base(r) })),
+    routes: routes.map(r => ({ id: r.id, name: nameOf(r, byId), kind: r.kind, color: r.color, width: r.width || null, smooth: r.smooth !== false, points: r.points.map(pt), ...base(r) })),
     entries,
   };
 }
