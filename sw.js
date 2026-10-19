@@ -1,10 +1,32 @@
 // Mapfold service worker — offline cache. Author: direk james
-const VERSION = 'mapfold-v1.0.0';
+const VERSION = 'mapfold-v1.1.0';
 const CORE = [
-  './', 'index.html', 'manifest.webmanifest', 'css/styles.css',
-  'js/app.js', 'js/db.js', 'js/editor.js', 'js/icons.js', 'js/library.js', 'js/parchment.js',
+  './', 'index.html', 'manifest.webmanifest', 'css/styles.css', 'css/fonts.css',
+  'js/app.js', 'js/db.js', 'js/editor.js', 'js/entries.js', 'js/icons.js', 'js/library.js', 'js/parchment.js',
   'js/render.js', 'js/store.js', 'js/terrain.js', 'js/ui.js', 'js/zip.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
+  'fonts/alegreya-italic-400-latin-ext.woff2',
+  'fonts/alegreya-italic-400-latin.woff2',
+  'fonts/alegreya-italic-500-latin-ext.woff2',
+  'fonts/alegreya-italic-500-latin.woff2',
+  'fonts/alegreya-normal-400-latin-ext.woff2',
+  'fonts/alegreya-normal-400-latin.woff2',
+  'fonts/alegreya-normal-500-latin-ext.woff2',
+  'fonts/alegreya-normal-500-latin.woff2',
+  'fonts/alegreya-sans-italic-400-latin-ext.woff2',
+  'fonts/alegreya-sans-italic-400-latin.woff2',
+  'fonts/alegreya-sans-normal-400-latin-ext.woff2',
+  'fonts/alegreya-sans-normal-400-latin.woff2',
+  'fonts/alegreya-sans-normal-500-latin-ext.woff2',
+  'fonts/alegreya-sans-normal-500-latin.woff2',
+  'fonts/alegreya-sans-normal-700-latin-ext.woff2',
+  'fonts/alegreya-sans-normal-700-latin.woff2',
+  'fonts/cinzel-normal-500-latin-ext.woff2',
+  'fonts/cinzel-normal-500-latin.woff2',
+  'fonts/cinzel-normal-600-latin-ext.woff2',
+  'fonts/cinzel-normal-600-latin.woff2',
+  'fonts/cinzel-normal-700-latin-ext.woff2',
+  'fonts/cinzel-normal-700-latin.woff2',
 ];
 
 self.addEventListener('install', e => {
@@ -19,26 +41,13 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  // Google Fonts: cache first, so text looks right offline.
-  if (url.hostname.endsWith('fonts.googleapis.com') || url.hostname.endsWith('fonts.gstatic.com')) {
-    e.respondWith(caches.open(VERSION).then(async c => {
-      const hit = await c.match(req);
-      if (hit) return hit;
-      try {
-        const res = await fetch(req);
-        if (res.ok || res.type === 'opaque') c.put(req, res.clone());
-        return res;
-      } catch {
-        return new Response('', { status: 504 });
-      }
-    }));
-    return;
-  }
   if (url.origin !== location.origin) return;
   // App files: network first so updates arrive, cache when offline.
   e.respondWith(fetch(req).then(res => {
-    const copy = res.clone();
-    caches.open(VERSION).then(c => c.put(req, copy));
+    if (res.ok) {
+      const copy = res.clone();
+      caches.open(VERSION).then(c => c.put(req, copy));
+    }
     return res;
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
 });

@@ -121,7 +121,7 @@ function drawText(ctx, text, x, y, style, size, color, rotation = 0) {
  * Draw a whole map onto ctx at `scale` (1 = full size).
  * sources: { base: CanvasImageSource, terrain: CanvasImageSource }
  */
-export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid = true, pinNames, only } = {}) {
+export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid = true, pinNames, only, hideSecret = false } = {}) {
   const L = {};
   for (const [k, v] of Object.entries(map.layers)) L[k] = { ...v, visible: v.visible && (!only || only.includes(k)) };
   const showNames = pinNames ?? map.showPinNames !== false;
@@ -141,9 +141,10 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
     ctx.restore();
   }
 
+  const vis = list => hideSecret ? list.filter(x => !x.secret) : list;
   const o = map.objects;
   if (L.regions.visible) {
-    for (const r of o.regions) {
+    for (const r of vis(o.regions)) {
       if (r.points.length < 3) continue;
       const p = new Path2D(pathFor(r.points, { closed: true, smooth: r.smooth }));
       ctx.save();
@@ -170,7 +171,7 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
   }
 
   if (L.routes.visible) {
-    for (const rt of o.routes) {
+    for (const rt of vis(o.routes)) {
       if (rt.points.length < 2) continue;
       const k = ROUTE_KINDS[rt.kind] || ROUTE_KINDS.road;
       const w = rt.width || k.width;
@@ -191,13 +192,13 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
   }
 
   if (L.labels.visible) {
-    for (const lb of o.labels) {
+    for (const lb of vis(o.labels)) {
       drawText(ctx, lb.text, lb.x, lb.y, lb.style, lb.size, lb.color, lb.rotation);
     }
   }
 
   if (L.pins.visible) {
-    for (const pin of o.pins) {
+    for (const pin of vis(o.pins)) {
       ctx.save();
       ctx.translate(pin.x, pin.y);
       ctx.scale(pinScale, pinScale);
