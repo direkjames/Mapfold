@@ -1,7 +1,7 @@
 // Mapfold — world/map model, export and import. Author: direk james
 import { db, uid } from './db.js';
 import { makeZip, readZip, textOf } from './zip.js';
-import { remapLinks } from './entries.js';
+import { remapLinks, nameOf, isSecret, plainText } from './entries.js';
 
 export const FORMAT_VERSION = 2; // 2: wiki entries, secret flag. Version 1 files still import.
 export const MAX_TERRAIN_SIDE = 4096;
@@ -196,19 +196,28 @@ export async function importWorld(file) {
  * Coordinates are normalised 0–1 against the map image so they survive resizing.
  * Inkfold reads pins, labels, regions and routes and ignores anything else.
  */
-export function interchangeFor(map, world) {
+export function interchangeFor(map, world, byId = new Map()) {
   const nx = x => +(x / map.width).toFixed(5);
   const ny = y => +(y / map.height).toFixed(5);
   const pt = p => [nx(p[0]), ny(p[1])];
   const o = map.objects;
+  const entryOf = x => (x.entryId && byId.get(x.entryId)) || null;
+  const note = x => { const e = entryOf(x); return e ? (e.secret ? '' : plainText(e.body)) : (x.lore || ''); };
+  const base = x => ({ note: note(x), entryId: x.entryId || null, secret: isSecret(x, byId) });
+  // Secret entries never travel: their text is left out of both `note` and `entries`.
+  const linked = new Set([...o.pins, ...o.regions, ...o.routes].map(x => x.entryId).filter(Boolean));
+  const entries = [...linked].map(id => byId.get(id)).filter(e => e && !e.secret).map(e => ({
+    id: e.id, type: e.type, name: e.name, aliases: e.aliases || [], tags: e.tags || [], fields: e.fields || {}, body: plainText(e.body),
+  }));
   return {
     format: 'mapfold-interchange',
     version: 1,
     source: { app: 'Mapfold', author: 'direk james', worldId: world.id, worldName: world.name, mapId: map.id, mapName: map.name, updated: map.updated },
     image: { file: 'map.png', width: map.width, height: map.height, rendered: 'rendered.png' },
-    pins: o.pins.map(p => ({ id: p.id, x: nx(p.x), y: ny(p.y), label: p.name, icon: p.icon, color: p.color, note: p.lore || '', secret: !!p.secret })),
+    pins: o.pins.map(p => ({ id: p.id, x: nx(p.x), y: ny(p.y), label: nameOf(p, byId), icon: p.icon, color: p.color, ...base(p) })),
     labels: o.labels.map(l => ({ id: l.id, x: nx(l.x), y: ny(l.y), text: l.text, style: l.style, size: +(l.size / map.height).toFixed(5), rotation: l.rotation || 0, color: l.color, secret: !!l.secret })),
-    regions: o.regions.map(r => ({ id: r.id, name: r.name, color: r.color, points: r.points.map(pt), note: r.lore || '', secret: !!r.secret })),
-    routes: o.routes.map(r => ({ id: r.id, name: r.name, kind: r.kind, color: r.color, points: r.points.map(pt), note: r.lore || '', secret: !!r.secret })),
+    regions: o.regions.map(r => ({ id: r.id, name: nameOf(r, byId), color: r.color, points: r.points.map(pt), ...base(r) })),
+    routes: o.routes.map(r => ({ id: r.id, name: nameOf(r, byId), kind: r.kind, color: r.color, points: r.points.map(pt), ...base(r) })),
+    entries,
   };
 }

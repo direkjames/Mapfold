@@ -8,8 +8,13 @@ import {
   LABEL_STYLES, ROUTE_KINDS, labelFont, pathFor, polylineLength, centroid, hexToRgba,
   formatDistance, hexPath, squarePath, renderMap,
 } from './render.js';
-import { exportWorld, interchangeFor, touchWorld } from './store.js';
+import { exportWorld, interchangeFor, touchWorld, defaultLayers } from './store.js';
 import { makeZip } from './zip.js';
+import { nameOf, isSecret, plainText } from './entries.js';
+import {
+  initWiki, loadWiki, migrateLore, openWiki, closeWiki, isWikiOpen, openSwitcher, flushEntries, entryMap, linkedEntry,
+  wikiFields, bindWikiFields, refreshLinkRow, setName, setLore, setTags,
+} from './wiki.js';
 import { newMapDialog, saveNewMap } from './library.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -78,6 +83,16 @@ export function initEditor(onExit) {
   buildToolrail();
   bindViewport();
   bindKeys();
+  initWiki({
+    maps: () => E.maps,
+    currentMap: () => E.map,
+    saveMap: m => db.putMap(m),
+    markDirty,
+    checkpoint,
+    jumpTo,
+    openMap: id => { if (isWikiOpen()) closeWiki(); return loadMap(id); },
+    onEntriesChanged,
+  });
 
   $('#btn-back').onclick = exitEditor;
   $('#btn-undo').onclick = undo;
@@ -96,9 +111,10 @@ export function initEditor(onExit) {
 
   window.addEventListener('resize', () => { if (E.map) { clampPan(); applyView(); } });
   window.addEventListener('beforeunload', e => {
+    flushEntries();
     if (E.dirtyMap || E.dirtyTerrain) { flush(); e.preventDefault(); e.returnValue = ''; }
   });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { flush(); flushEntries(); } });
 }
 
 export async function openWorld(worldId) {
@@ -106,6 +122,9 @@ export async function openWorld(worldId) {
   if (!E.world) { toast('That world could not be found.', 'bad'); return false; }
   E.maps = (await db.mapsOf(worldId)).sort((a, b) => a.order - b.order);
   $('#crumb-world').textContent = E.world.name;
+  await loadWiki(E.world);
+  const moved = await migrateLore();
+  if (moved) toast(`Moved the lore from ${moved} ${moved === 1 ? 'pin' : 'pins, regions and routes'} into your wiki.`, 'good', 5000);
   if (!E.maps.length) {
     const res = await newMapDialog({ title: 'Add the first map' });
     if (!res) return false;
@@ -117,8 +136,28 @@ export async function openWorld(worldId) {
 
 async function exitEditor() {
   await flush();
+  await flushEntries();
   E.map = null;
   E.onExit?.();
+}
+
+// ------------------------------------------------------------------ wiki glue
+
+/** An entry was renamed or made secret: redraw the names and styles on the map. */
+function onEntriesChanged() {
+  if (!E.map) return;
+  renderRegions(); renderPins(); renderHandles(); renderPlaces();
+}
+
+/** Open a map and select a pin, region or route on it. */
+async function jumpTo(mapId, kind, id) {
+  if (isWikiOpen()) closeWiki();
+  if (!E.map || E.map.id !== mapId) await loadMap(mapId);
+  select({ type: kind, id });
+  const o = getSel();
+  if (!o) return;
+  const c = o.points ? (kind === 'region' ? centroid(o.points) : o.points[Math.floor(o.points.length / 2)]) : [o.x, o.y];
+  centerOn(c[0], c[1]);
 }
 
 // ------------------------------------------------------------------ load map
@@ -126,6 +165,8 @@ async function exitEditor() {
 async function loadMap(id) {
   if (E.map) await flush();
   const map = E.maps.find(m => m.id === id) || await db.getMap(id);
+  map.layers = { ...defaultLayers(), ...(map.layers || {}) };
+  map.objects = { pins: [], labels: [], regions: [], routes: [], ...(map.objects || {}) };
   E.map = map;
   E.sel = null; E.draft = null; E.measure = null; E.undo = []; E.redo = [];
   E.ts = map.terrainScale || 1;
@@ -290,7 +331,7 @@ function renderAll() {
 }
 
 /** GM-only items stay visible to the GM but are drawn faded, with a dashed outline. */
-function secretClass(o) { return o.secret ? ' secret' : ''; }
+function secretClass(o) { return isSecret(o, entryMap()) ? ' secret' : ''; }
 
 function renderGrid() {
   const m = E.map;
@@ -318,9 +359,9 @@ function renderRegions() {
     el('path', { d, fill: hexToRgba(r.color, r.fill ?? 0.18), class: 'rg-fill' }, g);
     el('path', { d, fill: 'none', stroke: hexToRgba(r.color, 0.35), 'stroke-width': 18, 'clip-path': `url(#rc-${r.id})` }, g);
     if (r.border !== 'none') el('path', { d, fill: 'none', stroke: r.color, 'stroke-width': 3, 'stroke-dasharray': r.border === 'dashed' ? '14 9' : null, class: 'rg-border' }, g);
-    if (r.showName && r.name) {
+    if (r.showName && nameOf(r, entryMap())) {
       const [cx, cy] = centroid(r.points);
-      textEl(g, r.name, cx, cy, 'region', r.nameSize || 40, r.color, 0);
+      textEl(g, nameOf(r, entryMap()), cx, cy, 'region', r.nameSize || 40, r.color, 0);
     }
   }
 }
@@ -384,7 +425,7 @@ function renderPins() {
     el('circle', { cx: 0, cy: PIN_HEAD_Y, r: 9.5, class: 'pin-head' }, g);
     const gl = el('g', { transform: `translate(-7.5 ${PIN_HEAD_Y - 7.5}) scale(0.625)` }, g);
     el('path', { d: (PIN_ICONS[p.icon] || PIN_ICONS.marker).d, class: 'pin-glyph' }, gl);
-    if (showNames && p.name) textEl(g, p.name, 0, 14, 'settlement', 15, '#2a1d10', 0, { class: 'pin-name' });
+    if (showNames && nameOf(p, entryMap())) textEl(g, nameOf(p, entryMap()), 0, 14, 'settlement', 15, '#2a1d10', 0, { class: 'pin-name' });
   }
 }
 
@@ -538,7 +579,7 @@ async function addMap() {
 
 function placeName(type, o) {
   if (type === 'label') return o.text;
-  return o.name || `Unnamed ${TYPE_NAME[type].toLowerCase()}`;
+  return nameOf(o, entryMap()) || `Unnamed ${TYPE_NAME[type].toLowerCase()}`;
 }
 
 function renderPlaces() {
@@ -553,7 +594,11 @@ function renderPlaces() {
   ];
   let total = 0, html = '';
   for (const [type, title, list] of groups) {
-    const items = list.filter(x => !q || [placeName(type, x), x.lore, (x.tags || []).join(' '), x.secret ? 'secret' : ''].join(' ').toLowerCase().includes(q));
+    const items = list.filter(x => {
+      if (!q) return true;
+      const e = linkedEntry(x);
+      return [placeName(type, x), e ? plainText(e.body) : '', e ? e.tags.join(' ') : '', isSecret(x, entryMap()) ? 'secret' : ''].join(' ').toLowerCase().includes(q);
+    });
     total += list.length;
     if (!items.length) continue;
     html += `<div class="pl-group"><p class="pl-title">${title}</p>` + items.map(x => {
@@ -561,8 +606,8 @@ function renderPlaces() {
         : type === 'region' ? `<span class="pl-ico pl-swatch" style="--c:${x.color}"></span>`
         : type === 'route' ? `<span class="pl-ico pl-line" style="--c:${x.color || ROUTE_KINDS[x.kind].color}"></span>`
         : `<span class="pl-ico pl-text">Aa</span>`;
-      const unnamed = type !== 'label' && !x.name;
-      return `<button class="pl-item ${isSel(type, x.id) ? 'active' : ''} ${unnamed ? 'unnamed' : ''}" data-type="${type}" data-id="${x.id}">${ico}<span>${esc(placeName(type, x))}</span>${x.secret ? `<span class="pl-secret" title="Secret: hidden from players">${icon('lock')}</span>` : ''}</button>`;
+      const unnamed = type !== 'label' && !nameOf(x, entryMap());
+      return `<button class="pl-item ${isSel(type, x.id) ? 'active' : ''} ${unnamed ? 'unnamed' : ''}" data-type="${type}" data-id="${x.id}">${ico}<span>${esc(placeName(type, x))}</span>${isSecret(x, entryMap()) ? `<span class="pl-secret" title="Secret: hidden from players">${icon('lock')}</span>` : ''}</button>`;
     }).join('') + '</div>';
   }
   $('#places-count').textContent = total || '';
@@ -768,7 +813,7 @@ function addPin(x, y) {
   if (layerLocked('pin')) return;
   checkpoint();
   const last = E.map.objects.pins[E.map.objects.pins.length - 1];
-  const p = { id: uid('p'), x, y, name: '', icon: last?.icon || 'town', color: last?.color || PALETTE[0].hex, lore: '', tags: [], secret: false };
+  const p = { id: uid('p'), x, y, name: '', icon: last?.icon || 'town', color: last?.color || PALETTE[0].hex, secret: false };
   E.map.objects.pins.push(p);
   renderPins(); renderPlaces(); markDirty();
   select({ type: 'pin', id: p.id }, { focus: true });
@@ -793,11 +838,11 @@ function finishDraft() {
     checkpoint();
     let obj;
     if (d.type === 'region') {
-      obj = { id: uid('r'), name: '', nameSize: Math.round(40 * Math.max(1, E.map.width / 2200)), points: d.points, color: PALETTE[(E.map.objects.regions.length) % PALETTE.length].hex, fill: 0.18, border: 'solid', smooth: false, showName: true, lore: '', tags: [], secret: false };
+      obj = { id: uid('r'), name: '', nameSize: Math.round(40 * Math.max(1, E.map.width / 2200)), points: d.points, color: PALETTE[(E.map.objects.regions.length) % PALETTE.length].hex, fill: 0.18, border: 'solid', smooth: false, showName: true, secret: false };
       E.map.objects.regions.push(obj);
       renderRegions();
     } else {
-      obj = { id: uid('t'), name: '', points: d.points, kind: d.kind || 'road', color: null, width: null, smooth: true, lore: '', tags: [], secret: false };
+      obj = { id: uid('t'), name: '', points: d.points, kind: d.kind || 'road', color: null, width: null, smooth: true, secret: false };
       E.map.objects.routes.push(obj);
       renderRoutes();
     }
@@ -1152,6 +1197,8 @@ function bindKeys() {
     if ($('#editor').hidden || document.querySelector('.dialog')) return;
     const typing = e.target.closest('input, textarea, select, [contenteditable]');
     const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); openSwitcher(); return; }
+    if (isWikiOpen()) return;
     if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
     if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); flush().then(() => toast('Saved')); return; }
@@ -1184,6 +1231,7 @@ function bindKeys() {
     if (e.key === '-' || e.key === '_') { zoomBy(0.8); return; }
     if (e.key === '0') { fit(); return; }
     if (e.key === '?') { showHelp(); return; }
+    if (e.key.toLowerCase() === 'w') { openWiki(); return; }
     if (e.key === '[' || e.key === ']') {
       E.brush.size = Math.max(6, Math.min(300, Math.round(E.brush.size * (e.key === ']' ? 1.15 : 0.87))));
       const sl = $('#inspector [name=bsize]'); if (sl) { sl.value = E.brush.size; sl.dispatchEvent(new Event('input')); }
@@ -1223,12 +1271,6 @@ function slider(name, label, min, max, step, value, fmt = v => v) {
     <input type="range" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`;
 }
 
-function loreFields(o) {
-  return `
-    <label class="field"><span>Lore</span><textarea name="lore" rows="6" placeholder="History, secrets, who lives here, what the party heard about it…">${esc(o.lore || '')}</textarea></label>
-    <label class="field"><span>Tags</span><input name="tags" value="${esc((o.tags || []).join(', '))}" placeholder="act 1, faction, rumour"></label>`;
-}
-
 function secretField(o) {
   return `<label class="check secret-check"><input type="checkbox" name="secret" ${o.secret ? 'checked' : ''}><span><strong>Secret</strong> Only you can see this. It is left out of player exports.</span></label>`;
 }
@@ -1244,12 +1286,12 @@ function renderInspector() {
   let body = '';
   if (type === 'pin') {
     body = `
-      <label class="field"><span>Name</span><input name="name" data-focus value="${esc(o.name)}" placeholder="Name this place"></label>
+      <label class="field"><span>Name</span><input name="name" data-focus value="${esc(nameOf(o, entryMap()))}" placeholder="Name this place"></label>
       <p class="field-label">Symbol</p>
       <div class="glyphs">${Object.entries(PIN_ICONS).map(([k, v]) => `<button type="button" class="glyph ${o.icon === k ? 'on' : ''}" data-icon="${k}" title="${v.name}">${pinGlyph(k)}</button>`).join('')}</div>
       <p class="field-label">Colour</p>${swatches('color', o.color)}
       ${secretField(o)}
-      ${loreFields(o)}`;
+      ${wikiFields(o, 'pin')}`;
   } else if (type === 'label') {
     body = `
       <label class="field"><span>Text</span><input name="text" data-focus value="${esc(o.text)}"></label>
@@ -1262,7 +1304,7 @@ function renderInspector() {
       ${secretField(o)}`;
   } else if (type === 'region') {
     body = `
-      <label class="field"><span>Name</span><input name="name" data-focus value="${esc(o.name)}" placeholder="The Ashen Reach"></label>
+      <label class="field"><span>Name</span><input name="name" data-focus value="${esc(nameOf(o, entryMap()))}" placeholder="The Ashen Reach"></label>
       <label class="check"><input type="checkbox" name="showName" ${o.showName ? 'checked' : ''}><span>Write the name on the map</span></label>
       ${o.showName ? slider('nameSize', 'Name size', 14, 300, 1, o.nameSize || 40) : ''}
       <p class="field-label">Colour</p>${swatches('color', o.color)}
@@ -1270,7 +1312,7 @@ function renderInspector() {
       <p class="field-label">Border</p>${seg('border', { solid: 'Solid', dashed: 'Dashed', none: 'None' }, o.border)}
       <label class="check"><input type="checkbox" name="smooth" ${o.smooth ? 'checked' : ''}><span>Smooth the outline</span></label>
       ${secretField(o)}
-      ${loreFields(o)}`;
+      ${wikiFields(o, 'region')}`;
   } else if (type === 'route') {
     const len = polylineLength(o.points);
     const unit = E.map.scale.unit;
@@ -1278,7 +1320,7 @@ function renderInspector() {
     const perDay = { mi: 24, km: 38, leagues: 8 }[unit];
     const days = perDay ? units / perDay : null;
     body = `
-      <label class="field"><span>Name</span><input name="name" data-focus value="${esc(o.name)}" placeholder="The King's Road"></label>
+      <label class="field"><span>Name</span><input name="name" data-focus value="${esc(nameOf(o, entryMap()))}" placeholder="The King's Road"></label>
       <div class="stat-row"><div class="stat"><strong>${formatDistance(len, E.map)}</strong><span>Length</span></div>
       ${days !== null ? `<div class="stat"><strong>${days < 1 ? Math.max(1, Math.round(days * 8)) + ' hr' : (Math.round(days * 2) / 2) + (days >= 1.25 ? ' days' : ' day')}</strong><span>On foot</span></div>` : ''}</div>
       <p class="field-label">Kind</p>${seg('kind', Object.fromEntries(Object.entries(ROUTE_KINDS).map(([k, v]) => [k, v.name])), o.kind)}
@@ -1286,7 +1328,7 @@ function renderInspector() {
       <p class="field-label">Colour</p>${swatches('color', o.color, { allowDefault: true })}
       <label class="check"><input type="checkbox" name="smooth" ${o.smooth !== false ? 'checked' : ''}><span>Smooth the curve</span></label>
       ${secretField(o)}
-      ${loreFields(o)}`;
+      ${wikiFields(o, 'route')}`;
   }
 
   const locked = E.map.layers[TYPE_LAYER[type]].locked;
@@ -1316,16 +1358,22 @@ function bindInspector(box, o, type) {
     const t = e.target;
     const n = t.name;
     if (!n || t.type === 'radio' || t.type === 'checkbox' || t.dataset.custom) return;
+    if (type !== 'label' && (n === 'name' || n === 'lore' || n === 'tags')) {
+      once();
+      if (n === 'name') setName(o, type, t.value);
+      else if (n === 'lore' ? setLore(o, type, t.value) : setTags(o, type, t.value)) refreshLinkRow(box, o, type);
+      live();
+      debouncePlaces();
+      return;
+    }
     once();
     if (t.type === 'range') {
       o[n] = +t.value;
       const out = t.closest('label').querySelector('output');
       if (out) out.textContent = n === 'fill' ? Math.round(t.value * 100) + '%' : n === 'rotation' ? t.value + '°' : t.value;
-    } else if (n === 'tags') {
-      o.tags = t.value.split(',').map(s => s.trim()).filter(Boolean);
     } else o[n] = t.value;
     live();
-    if (n === 'name' || n === 'text' || n === 'tags' || n === 'lore') debouncePlaces();
+    if (n === 'text') debouncePlaces();
   });
   form.addEventListener('change', e => {
     const t = e.target;
@@ -1341,6 +1389,7 @@ function bindInspector(box, o, type) {
       live(); renderInspector(); renderPlaces();
     }
   });
+  if (type !== 'label') bindWikiFields(box, o, type, { refresh: () => { rerenderType(type); renderInspector(); renderPlaces(); } });
   $$('[data-color]', box).forEach(b => b.onclick = () => {
     checkpoint(); o.color = b.dataset.color || null; live(); renderInspector(); renderPlaces();
   });
@@ -1475,6 +1524,7 @@ function showHelp() {
     ['Tools', [['V', 'Select and move'], ['H', 'Pan'], ['P', 'Pin'], ['T', 'Label'], ['R', 'Region'], ['L', 'Route'], ['B', 'Terrain brush'], ['E', 'Eraser'], ['M', 'Measure']]],
     ['Map', [['Space + drag', 'Pan from any tool'], ['Scroll', 'Zoom'], ['0', 'Fit map'], ['+ / −', 'Zoom in or out'], ['G', 'Show or hide grid'], ['[ / ]', 'Brush size']]],
     ['Editing', [['Ctrl + Z', 'Undo'], ['Ctrl + Shift + Z', 'Redo'], ['Ctrl + D', 'Duplicate'], ['Alt + drag', 'Duplicate and move'], ['Arrows', 'Nudge (Shift for more)'], ['Delete', 'Delete selection'], ['Enter', 'Finish region or route'], ['Right-click', 'Remove last point'], ['Esc', 'Cancel or deselect'], ['Ctrl + S', 'Save now']]],
+    ['Wiki', [['W', 'Open the wiki'], ['Ctrl + K', 'Find any entry, place or map'], ['[[', 'Link to an entry while writing'], ['Esc', 'Back to the map']]],
   ];
   dialog({
     title: 'Keyboard shortcuts', wide: 'xl',
@@ -1490,11 +1540,11 @@ async function renderToBlob(opts, maxSide = 8192) {
   const scale = Math.min(1, maxSide / Math.max(m.width, m.height));
   const c = document.createElement('canvas');
   c.width = Math.round(m.width * scale); c.height = Math.round(m.height * scale);
-  renderMap(c.getContext('2d'), m, { base: E.baseSource, terrain: terrainCanvas }, { scale, pinScale: Math.max(1, m.width / 1600), ...opts });
+  renderMap(c.getContext('2d'), m, { base: E.baseSource, terrain: terrainCanvas }, { scale, pinScale: Math.max(1, m.width / 1600), entries: entryMap(), ...opts });
   return new Promise(r => c.toBlob(r, 'image/png'));
 }
 
-const secretCount = m => Object.values(m.objects).reduce((n, list) => n + list.filter(x => x.secret).length, 0);
+const secretCount = m => Object.values(m.objects).reduce((n, list) => n + list.filter(x => isSecret(x, entryMap())).length, 0);
 
 /** Canvas text only loads a font when it is first used, so load every lettering style up front. */
 async function ensureFonts() {
@@ -1505,6 +1555,7 @@ async function ensureFonts() {
 
 async function doExport(kind) {
   await flush();
+  await flushEntries();
   try {
     if (kind === 'world') {
       const blob = await exportWorld(E.world.id);
@@ -1521,7 +1572,7 @@ async function doExport(kind) {
       await ensureFonts();
       const plain = await renderToBlob({ only: ['base', 'terrain'] });
       const full = await renderToBlob({ hideSecret: true });
-      const json = interchangeFor(E.map, E.world);
+      const json = interchangeFor(E.map, E.world, entryMap());
       const zip = await makeZip([
         { name: 'interchange.json', data: JSON.stringify(json, null, 1) },
         { name: 'map.png', data: plain },

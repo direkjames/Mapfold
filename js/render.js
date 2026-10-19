@@ -1,5 +1,6 @@
 // Mapfold — shared geometry, styles, and the canvas renderer for exports. Author: direk james
 import { PIN_ICONS, PIN_BODY, PIN_HEAD_Y } from './icons.js';
+import { nameOf, isSecret } from './entries.js';
 
 export const LABEL_STYLES = {
   realm:      { name: 'Realm',      family: 'Cinzel',        weight: 600, italic: false, spacing: 0.32, size: 72, color: '#3a2c1e' },
@@ -121,7 +122,7 @@ function drawText(ctx, text, x, y, style, size, color, rotation = 0) {
  * Draw a whole map onto ctx at `scale` (1 = full size).
  * sources: { base: CanvasImageSource, terrain: CanvasImageSource }
  */
-export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid = true, pinNames, only, hideSecret = false } = {}) {
+export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid = true, pinNames, only, hideSecret = false, entries } = {}) {
   const L = {};
   for (const [k, v] of Object.entries(map.layers)) L[k] = { ...v, visible: v.visible && (!only || only.includes(k)) };
   const showNames = pinNames ?? map.showPinNames !== false;
@@ -141,7 +142,7 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
     ctx.restore();
   }
 
-  const vis = list => hideSecret ? list.filter(x => !x.secret) : list;
+  const vis = list => hideSecret ? list.filter(x => !isSecret(x, entries)) : list;
   const o = map.objects;
   if (L.regions.visible) {
     for (const r of vis(o.regions)) {
@@ -163,9 +164,9 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
         ctx.stroke(p);
         ctx.restore();
       }
-      if (r.showName && r.name) {
+      if (r.showName && nameOf(r, entries)) {
         const c = centroid(r.points);
-        drawText(ctx, r.name, c[0], c[1], 'region', r.nameSize || 40, r.color);
+        drawText(ctx, nameOf(r, entries), c[0], c[1], 'region', r.nameSize || 40, r.color);
       }
     }
   }
@@ -216,8 +217,8 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
       ctx.strokeStyle = '#2a1d10'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.stroke(new Path2D(g.d));
       ctx.restore();
-      if (pin.name && showNames) {
-        drawText(ctx, pin.name, pin.x, pin.y + 14 * pinScale, 'settlement', 18 * pinScale, '#2a1d10');
+      if (nameOf(pin, entries) && showNames) {
+        drawText(ctx, nameOf(pin, entries), pin.x, pin.y + 14 * pinScale, 'settlement', 18 * pinScale, '#2a1d10');
       }
     }
   }
