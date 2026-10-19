@@ -39,12 +39,19 @@ if (innerWidth < 900 && !sessionStorage.getItem('mf-small-ok')) {
   };
 }
 
-if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
-if (navigator.storage?.estimate) {
-  navigator.storage.estimate().then(({ usage }) => {
-    if (usage > 1e6) $('#storage-note').textContent = `${(usage / 1e6).toFixed(1)} MB used on this device`;
-  }).catch(() => {});
+// Ask the browser not to clear our data when space runs low, and say honestly whether it agreed.
+async function storageNote() {
+  let persisted = false, usage = 0;
+  try {
+    persisted = (await navigator.storage?.persisted?.()) || (await navigator.storage?.persist?.()) || false;
+    usage = (await navigator.storage?.estimate?.())?.usage || 0;
+  } catch { /* storage API unavailable */ }
+  const used = usage > 1e6 ? `${(usage / 1e6).toFixed(1)} MB used on this device. ` : '';
+  $('#storage-note').textContent = used + (persisted
+    ? 'Protected from automatic cleanup.'
+    : 'Your browser may clear this if space runs low, so export worlds you care about.');
 }
+storageNote();
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

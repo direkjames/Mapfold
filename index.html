@@ -10,9 +10,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Alegreya:ital,wght@0,400;0,500;1,400;1,500&family=Cinzel:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="preload" href="fonts/cinzel-normal-600-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -58,6 +57,7 @@
         <h2>Your worlds</h2>
         <span class="shelf-count" id="shelf-count"></span>
       </div>
+      <p class="backup-note" id="backup-note" role="status" hidden></p>
       <div class="tomes" id="tomes"></div>
       <div class="shelf-empty" id="shelf-empty" hidden>
         <p class="empty-title">The shelf is bare.</p>
@@ -98,8 +98,9 @@
         <button class="btn btn-gilt btn-sm" id="btn-export"><svg class="i"><use href="#i-export"/></svg>Export</button>
         <div class="menu" id="menu-export" hidden>
           <button data-export="world"><strong>World file</strong><span>Everything in this world, as a .mapfold backup</span></button>
-          <button data-export="png"><strong>Map image</strong><span>This map as a full-size PNG</span></button>
-          <button data-export="inkfold"><strong>Send to Inkfold</strong><span>Map picture with pins and labels for Inkfold</span></button>
+          <button data-export="png"><strong>Map image</strong><span>Full-size PNG for your players. Secret items are left out</span></button>
+          <button data-export="png-gm"><strong>Map image, GM copy</strong><span>Full-size PNG with everything, secrets included</span></button>
+          <button data-export="inkfold"><strong>Send to Inkfold</strong><span>Map picture with pins and labels. Secret items stay off the picture</span></button>
         </div>
       </div>
     </header>

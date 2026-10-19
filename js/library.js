@@ -5,6 +5,14 @@ import { icon } from './icons.js';
 import { BLANK_SIZES, createWorld, exportWorld, importWorld, newMapRecord, imageSize } from './store.js';
 import { PARCHMENTS, paintParchment } from './parchment.js';
 
+const BACKUP_AFTER = 3 * 24 * 3600 * 1000; // nudge once a world has been edited for 3 days without a backup
+
+/** True when the world has changes that exist only in this browser, and it's been a while. */
+export function needsBackup(w) {
+  const last = w.lastBackup || 0;
+  return w.updated > last && Date.now() - Math.max(last, w.created || 0) > BACKUP_AFTER;
+}
+
 let openEditor = null;
 const fe = (f, n) => f.elements.namedItem(n);
 const thumbUrls = [];
@@ -46,6 +54,12 @@ export async function renderShelf() {
   thumbUrls.splice(0).forEach(u => URL.revokeObjectURL(u));
   const worlds = (await db.allWorlds()).sort((a, b) => b.updated - a.updated);
   const wrap = $('#tomes');
+  const stale = worlds.filter(needsBackup);
+  const note = $('#backup-note');
+  note.hidden = !stale.length;
+  if (stale.length) {
+    note.innerHTML = `${icon('export')}<span><strong>${stale.length === 1 ? esc(stale[0].name) : stale.length + ' worlds'}</strong> ${stale.length === 1 ? 'has' : 'have'} changes that only exist in this browser. Use <em>Export .mapfold</em> to keep a safe copy.</span>`;
+  }
   $('#shelf-empty').hidden = worlds.length > 0;
   $('#shelf-count').textContent = worlds.length ? `${worlds.length} ${worlds.length === 1 ? 'world' : 'worlds'}` : '';
   const cards = await Promise.all(worlds.map(async w => {
@@ -60,6 +74,7 @@ export async function renderShelf() {
           <div class="tome-plate">${img}</div>
           <h3 class="tome-name">${esc(w.name)}</h3>
           <p class="tome-meta">${maps.length} ${maps.length === 1 ? 'map' : 'maps'}, edited ${timeAgo(w.updated)}</p>
+          ${needsBackup(w) ? `<p class="tome-warn" title="Export a .mapfold file to back this world up">Not backed up</p>` : ''}
         </div>
         <button class="tome-more" aria-label="World options">${icon('more')}</button>
         <div class="tome-menu menu" hidden>
@@ -94,6 +109,7 @@ export async function renderShelf() {
         const blob = await exportWorld(id);
         download(blob, safeName(w.name) + '.mapfold');
         toast('World exported', 'good');
+        renderShelf();
       } else if (b.dataset.act === 'delete') {
         const ok = await confirmBox('Delete this world?', `<strong>${esc(w.name)}</strong> and all of its maps will be removed from this browser. Export it first if you want a backup.`, { okLabel: 'Delete world' });
         if (ok) { await db.deleteWorld(id); toast('World deleted'); renderShelf(); }

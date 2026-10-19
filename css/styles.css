@@ -586,3 +586,22 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation: none !important; }
 }
+
+/* ---- Secret (GM-only) items ---- */
+.obj.secret { opacity: .6; }
+.obj.secret.selected { opacity: 1; }
+.pin.secret .pin-body { stroke-dasharray: 3 2.5; }
+.region.secret .rg-border { stroke-dasharray: 6 6; }
+.route.secret .rt-main { stroke-dasharray: 10 8; }
+.pl-secret { margin-left: auto; display: grid; place-items: center; color: var(--gilt, #d8b46a); flex: none; }
+.pl-secret .i { width: 14px; height: 14px; }
+.secret-check { align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: rgba(0,0,0,.18); }
+.secret-check input { margin-top: 1px; }
+.secret-check span { font-size: 13px; line-height: 1.4; color: var(--text-dim); }
+.secret-check strong { color: var(--text); margin-right: 4px; }
+
+/* ---- Backup reminders ---- */
+.backup-note { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; padding: 11px 14px; border: 1px solid rgba(216,180,106,.35); border-radius: var(--r-sm); background: rgba(216,180,106,.08); color: var(--text); font-size: 14px; line-height: 1.4; }
+.backup-note[hidden] { display: none; }
+.backup-note .i { width: 18px; height: 18px; flex: none; color: #d8b46a; }
+.tome-warn { margin: 6px 0 0; font: 600 11px/1 var(--f-ui, sans-serif); letter-spacing: .08em; text-transform: uppercase; color: #e0b866; }

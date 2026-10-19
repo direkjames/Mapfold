@@ -289,6 +289,9 @@ function renderAll() {
   updateScalebar();
 }
 
+/** GM-only items stay visible to the GM but are drawn faded, with a dashed outline. */
+function secretClass(o) { return o.secret ? ' secret' : ''; }
+
 function renderGrid() {
   const m = E.map;
   G.grid.innerHTML = '';
@@ -311,7 +314,7 @@ function renderRegions() {
     const d = pathFor(r.points, { closed: true, smooth: r.smooth });
     const cp = el('clipPath', { id: 'rc-' + r.id, class: 'rclip' }, defs);
     el('path', { d }, cp);
-    const g = el('g', { class: 'obj region' + (isSel('region', r.id) ? ' selected' : ''), 'data-type': 'region', 'data-id': r.id }, G.regions);
+    const g = el('g', { class: 'obj region' + secretClass(r) + (isSel('region', r.id) ? ' selected' : ''), 'data-type': 'region', 'data-id': r.id }, G.regions);
     el('path', { d, fill: hexToRgba(r.color, r.fill ?? 0.18), class: 'rg-fill' }, g);
     el('path', { d, fill: 'none', stroke: hexToRgba(r.color, 0.35), 'stroke-width': 18, 'clip-path': `url(#rc-${r.id})` }, g);
     if (r.border !== 'none') el('path', { d, fill: 'none', stroke: r.color, 'stroke-width': 3, 'stroke-dasharray': r.border === 'dashed' ? '14 9' : null, class: 'rg-border' }, g);
@@ -326,7 +329,7 @@ function routeEls(parent, rt, extraClass = '') {
   const k = ROUTE_KINDS[rt.kind] || ROUTE_KINDS.road;
   const w = rt.width || k.width;
   const d = pathFor(rt.points, { smooth: rt.smooth !== false });
-  const g = el('g', { class: 'obj route ' + extraClass, 'data-type': 'route', 'data-id': rt.id }, parent);
+  const g = el('g', { class: 'obj route' + secretClass(rt) + ' ' + extraClass, 'data-type': 'route', 'data-id': rt.id }, parent);
   el('path', { d, class: 'hit', fill: 'none', stroke: 'transparent', 'stroke-width': Math.max(w * 3, 24) }, g);
   el('path', {
     d, fill: 'none', stroke: rt.color || k.color, 'stroke-width': w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
@@ -363,7 +366,7 @@ function renderLabels() {
   G.labels.innerHTML = '';
   for (const lb of E.map.objects.labels) {
     textEl(G.labels, lb.text || ' ', lb.x, lb.y, lb.style, lb.size, lb.color, lb.rotation, {
-      class: 'obj label' + (isSel('label', lb.id) ? ' selected' : ''), 'data-type': 'label', 'data-id': lb.id,
+      class: 'obj label' + secretClass(lb) + (isSel('label', lb.id) ? ' selected' : ''), 'data-type': 'label', 'data-id': lb.id,
     });
   }
 }
@@ -375,7 +378,7 @@ function renderPins() {
   const s = pinScale();
   const showNames = E.map.showPinNames !== false;
   for (const p of E.map.objects.pins) {
-    const g = el('g', { class: 'obj pin' + (isSel('pin', p.id) ? ' selected' : ''), 'data-type': 'pin', 'data-id': p.id, transform: `translate(${p.x} ${p.y}) scale(${s})` }, G.pins);
+    const g = el('g', { class: 'obj pin' + secretClass(p) + (isSel('pin', p.id) ? ' selected' : ''), 'data-type': 'pin', 'data-id': p.id, transform: `translate(${p.x} ${p.y}) scale(${s})` }, G.pins);
     el('ellipse', { rx: 6, ry: 2.5, class: 'pin-shadow' }, g);
     el('path', { d: PIN_BODY, fill: p.color, class: 'pin-body' }, g);
     el('circle', { cx: 0, cy: PIN_HEAD_Y, r: 9.5, class: 'pin-head' }, g);
@@ -550,7 +553,7 @@ function renderPlaces() {
   ];
   let total = 0, html = '';
   for (const [type, title, list] of groups) {
-    const items = list.filter(x => !q || [placeName(type, x), x.lore, (x.tags || []).join(' ')].join(' ').toLowerCase().includes(q));
+    const items = list.filter(x => !q || [placeName(type, x), x.lore, (x.tags || []).join(' '), x.secret ? 'secret' : ''].join(' ').toLowerCase().includes(q));
     total += list.length;
     if (!items.length) continue;
     html += `<div class="pl-group"><p class="pl-title">${title}</p>` + items.map(x => {
@@ -559,7 +562,7 @@ function renderPlaces() {
         : type === 'route' ? `<span class="pl-ico pl-line" style="--c:${x.color || ROUTE_KINDS[x.kind].color}"></span>`
         : `<span class="pl-ico pl-text">Aa</span>`;
       const unnamed = type !== 'label' && !x.name;
-      return `<button class="pl-item ${isSel(type, x.id) ? 'active' : ''} ${unnamed ? 'unnamed' : ''}" data-type="${type}" data-id="${x.id}">${ico}<span>${esc(placeName(type, x))}</span></button>`;
+      return `<button class="pl-item ${isSel(type, x.id) ? 'active' : ''} ${unnamed ? 'unnamed' : ''}" data-type="${type}" data-id="${x.id}">${ico}<span>${esc(placeName(type, x))}</span>${x.secret ? `<span class="pl-secret" title="Secret: hidden from players">${icon('lock')}</span>` : ''}</button>`;
     }).join('') + '</div>';
   }
   $('#places-count').textContent = total || '';
@@ -765,7 +768,7 @@ function addPin(x, y) {
   if (layerLocked('pin')) return;
   checkpoint();
   const last = E.map.objects.pins[E.map.objects.pins.length - 1];
-  const p = { id: uid('p'), x, y, name: '', icon: last?.icon || 'town', color: last?.color || PALETTE[0].hex, lore: '', tags: [] };
+  const p = { id: uid('p'), x, y, name: '', icon: last?.icon || 'town', color: last?.color || PALETTE[0].hex, lore: '', tags: [], secret: false };
   E.map.objects.pins.push(p);
   renderPins(); renderPlaces(); markDirty();
   select({ type: 'pin', id: p.id }, { focus: true });
@@ -775,7 +778,7 @@ function addLabel(x, y) {
   if (layerLocked('label')) return;
   checkpoint();
   const style = E.map.objects.labels[E.map.objects.labels.length - 1]?.style || 'region';
-  const l = { id: uid('l'), x, y, text: 'New label', style, size: Math.round(LABEL_STYLES[style].size * Math.max(1, E.map.width / 2200)), rotation: 0, color: null };
+  const l = { id: uid('l'), x, y, text: 'New label', style, size: Math.round(LABEL_STYLES[style].size * Math.max(1, E.map.width / 2200)), rotation: 0, color: null, secret: false };
   E.map.objects.labels.push(l);
   renderLabels(); renderPlaces(); markDirty();
   select({ type: 'label', id: l.id }, { focus: true });
@@ -790,11 +793,11 @@ function finishDraft() {
     checkpoint();
     let obj;
     if (d.type === 'region') {
-      obj = { id: uid('r'), name: '', nameSize: Math.round(40 * Math.max(1, E.map.width / 2200)), points: d.points, color: PALETTE[(E.map.objects.regions.length) % PALETTE.length].hex, fill: 0.18, border: 'solid', smooth: false, showName: true, lore: '', tags: [] };
+      obj = { id: uid('r'), name: '', nameSize: Math.round(40 * Math.max(1, E.map.width / 2200)), points: d.points, color: PALETTE[(E.map.objects.regions.length) % PALETTE.length].hex, fill: 0.18, border: 'solid', smooth: false, showName: true, lore: '', tags: [], secret: false };
       E.map.objects.regions.push(obj);
       renderRegions();
     } else {
-      obj = { id: uid('t'), name: '', points: d.points, kind: d.kind || 'road', color: null, width: null, smooth: true, lore: '', tags: [] };
+      obj = { id: uid('t'), name: '', points: d.points, kind: d.kind || 'road', color: null, width: null, smooth: true, lore: '', tags: [], secret: false };
       E.map.objects.routes.push(obj);
       renderRoutes();
     }
@@ -1226,6 +1229,10 @@ function loreFields(o) {
     <label class="field"><span>Tags</span><input name="tags" value="${esc((o.tags || []).join(', '))}" placeholder="act 1, faction, rumour"></label>`;
 }
 
+function secretField(o) {
+  return `<label class="check secret-check"><input type="checkbox" name="secret" ${o.secret ? 'checked' : ''}><span><strong>Secret</strong> Only you can see this. It is left out of player exports.</span></label>`;
+}
+
 function renderInspector() {
   const box = $('#inspector');
   if (!E.map) { box.innerHTML = ''; return; }
@@ -1241,6 +1248,7 @@ function renderInspector() {
       <p class="field-label">Symbol</p>
       <div class="glyphs">${Object.entries(PIN_ICONS).map(([k, v]) => `<button type="button" class="glyph ${o.icon === k ? 'on' : ''}" data-icon="${k}" title="${v.name}">${pinGlyph(k)}</button>`).join('')}</div>
       <p class="field-label">Colour</p>${swatches('color', o.color)}
+      ${secretField(o)}
       ${loreFields(o)}`;
   } else if (type === 'label') {
     body = `
@@ -1250,7 +1258,8 @@ function renderInspector() {
         `<button type="button" class="ls ${o.style === k ? 'on' : ''}" data-style="${k}" style="font:${s.italic ? 'italic ' : ''}${s.weight} 17px '${s.family}';letter-spacing:${s.spacing * 0.6}em">${s.name}</button>`).join('')}</div>
       ${slider('size', 'Size', 10, 400, 1, o.size)}
       ${slider('rotation', 'Rotation', -90, 90, 1, o.rotation || 0, v => v + '°')}
-      <p class="field-label">Colour</p>${swatches('color', o.color, { allowDefault: true })}`;
+      <p class="field-label">Colour</p>${swatches('color', o.color, { allowDefault: true })}
+      ${secretField(o)}`;
   } else if (type === 'region') {
     body = `
       <label class="field"><span>Name</span><input name="name" data-focus value="${esc(o.name)}" placeholder="The Ashen Reach"></label>
@@ -1260,6 +1269,7 @@ function renderInspector() {
       ${slider('fill', 'Fill', 0, 0.6, 0.02, o.fill ?? 0.18, v => Math.round(v * 100) + '%')}
       <p class="field-label">Border</p>${seg('border', { solid: 'Solid', dashed: 'Dashed', none: 'None' }, o.border)}
       <label class="check"><input type="checkbox" name="smooth" ${o.smooth ? 'checked' : ''}><span>Smooth the outline</span></label>
+      ${secretField(o)}
       ${loreFields(o)}`;
   } else if (type === 'route') {
     const len = polylineLength(o.points);
@@ -1275,6 +1285,7 @@ function renderInspector() {
       ${slider('width', 'Width', 2, 24, 1, o.width || ROUTE_KINDS[o.kind].width)}
       <p class="field-label">Colour</p>${swatches('color', o.color, { allowDefault: true })}
       <label class="check"><input type="checkbox" name="smooth" ${o.smooth !== false ? 'checked' : ''}><span>Smooth the curve</span></label>
+      ${secretField(o)}
       ${loreFields(o)}`;
   }
 
@@ -1323,6 +1334,7 @@ function bindInspector(box, o, type) {
       o[t.name] = t.type === 'checkbox' ? t.checked : t.value;
       if (t.name === 'kind') o.width = null;
       live(); renderInspector();
+      if (t.name === 'secret') renderPlaces();
     } else if (t.dataset.custom) {
       checkpoint();
       o[t.dataset.custom] = t.value;
@@ -1482,6 +1494,15 @@ async function renderToBlob(opts, maxSide = 8192) {
   return new Promise(r => c.toBlob(r, 'image/png'));
 }
 
+const secretCount = m => Object.values(m.objects).reduce((n, list) => n + list.filter(x => x.secret).length, 0);
+
+/** Canvas text only loads a font when it is first used, so load every lettering style up front. */
+async function ensureFonts() {
+  const sample = 'Aa Ææ Éé';
+  await Promise.all(Object.keys(LABEL_STYLES).map(k => document.fonts.load(labelFont(k, 24), sample).catch(() => {})));
+  await document.fonts.ready;
+}
+
 async function doExport(kind) {
   await flush();
   try {
@@ -1489,15 +1510,17 @@ async function doExport(kind) {
       const blob = await exportWorld(E.world.id);
       download(blob, safeName(E.world.name) + '.mapfold');
       toast('World exported', 'good');
-    } else if (kind === 'png') {
-      await document.fonts.ready;
-      const blob = await renderToBlob({});
-      download(blob, `${safeName(E.world.name)}-${safeName(E.map.name)}.png`);
-      toast('Map image saved', 'good');
+    } else if (kind === 'png' || kind === 'png-gm') {
+      await ensureFonts();
+      const players = kind === 'png';
+      const blob = await renderToBlob({ hideSecret: players });
+      download(blob, `${safeName(E.world.name)}-${safeName(E.map.name)}${players ? '' : '-gm'}.png`);
+      const hidden = players ? secretCount(E.map) : 0;
+      toast(hidden ? `Map image saved. ${hidden} secret ${hidden === 1 ? 'item was' : 'items were'} left out.` : 'Map image saved', 'good', hidden ? 4200 : 2800);
     } else if (kind === 'inkfold') {
-      await document.fonts.ready;
+      await ensureFonts();
       const plain = await renderToBlob({ only: ['base', 'terrain'] });
-      const full = await renderToBlob({});
+      const full = await renderToBlob({ hideSecret: true });
       const json = interchangeFor(E.map, E.world);
       const zip = await makeZip([
         { name: 'interchange.json', data: JSON.stringify(json, null, 1) },

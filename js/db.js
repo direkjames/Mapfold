@@ -1,6 +1,6 @@
 // Mapfold — IndexedDB storage. Author: direk james
 const DB_NAME = 'mapfold';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // v2 adds the wiki `entries` store; v1 worlds open unchanged
 let dbp = null;
 
 function open() {
@@ -15,9 +15,19 @@ function open() {
         s.createIndex('worldId', 'worldId');
       }
       if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('entries')) {
+        const s = db.createObjectStore('entries', { keyPath: 'id' });
+        s.createIndex('worldId', 'worldId');
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Another tab (or Inkfold) is upgrading the database: step aside instead of blocking it.
+      db.onversionchange = () => { db.close(); dbp = null; };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('Mapfold is open in another tab. Close it and reload.'));
   });
   return dbp;
 }
@@ -45,6 +55,7 @@ export const db = {
   async deleteWorld(id) {
     const maps = await this.mapsOf(id);
     for (const m of maps) await this.deleteMap(m.id);
+    await this.deleteEntriesOf(id);
     await tx('blobs', 'readwrite', s => { s.delete('thumb:' + id); });
     return tx('worlds', 'readwrite', s => { s.delete(id); });
   },
@@ -56,6 +67,17 @@ export const db = {
   async deleteMap(id) {
     await tx('blobs', 'readwrite', s => { s.delete('terrain:' + id); s.delete('base:' + id); });
     return tx('maps', 'readwrite', s => { s.delete(id); });
+  },
+  entriesOf(worldId) {
+    return tx('entries', 'readonly', s => wrap(s.index('worldId').getAll(worldId)));
+  },
+  getEntry(id) { return tx('entries', 'readonly', s => wrap(s.get(id))); },
+  putEntry(e) { return tx('entries', 'readwrite', s => { s.put(e); }); },
+  putEntries(list) { return tx('entries', 'readwrite', s => { list.forEach(e => s.put(e)); }); },
+  deleteEntry(id) { return tx('entries', 'readwrite', s => { s.delete(id); }); },
+  async deleteEntriesOf(worldId) {
+    const list = await this.entriesOf(worldId);
+    return tx('entries', 'readwrite', s => { list.forEach(e => s.delete(e.id)); });
   },
   async getBlob(key) {
     const r = await tx('blobs', 'readonly', s => wrap(s.get(key)));
