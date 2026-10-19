@@ -45,6 +45,15 @@ Press `?` in the editor for every keyboard shortcut.
 - **Pins, regions and routes use entries.** Select one and use *Link to entry*, or just start writing lore: an entry is created for you. The name on the map follows the entry. Lore you wrote on pins in earlier versions is moved into entries the first time a world opens.
 - **Secret entries** hide everything linked to them from player exports. The Inkfold package carries each linked entry's id, name, tags and plain-text notes (secret ones are left out), so Inkfold can reference places by id.
 
+## What's new in 1.3 (Phase 2C: structure of the world)
+
+- **Maps inside maps.** A pin can open a child map (*Opens map* in the pin inspector, or double-click the pin). A breadcrumb trail shows where you are, and the Maps list is an outline. A map can never be put inside itself or one of its own children.
+- **Factions with territory.** Factions are wiki entries with a colour. Give a region a faction and it takes that colour (change it once, every territory follows). Tick *Show a key* in the map settings for an on-screen and exported legend. A secret faction's regions and key stay out of player images.
+- **Calendar and timeline.** *Calendar* (in the wiki) sets your months, days per month, weekday names, eras and "today". Events get a date (and optional end date) and the places they happened at. *Timeline* lists them in order, grouped by year, with a place filter. Place entries show *Events here*. Dates are stored as one day number, so a calendar change never loses an event.
+- **Terrain polish.** Five new stamps (Dunes, Marsh, Town, Castle, Ruins) and **Outline coasts**, which inks a coastline wherever sea paint meets land (one undo step). Undo history is now capped by memory as well as step count, so very large maps stay safe.
+
+Not included: stamps are painted into the terrain image, so they can't be picked up and moved afterwards. Use undo or the eraser.
+
 ## Files
 
 ```
@@ -62,6 +71,9 @@ js/render.js          shared geometry and the canvas renderer used for exports
 js/terrain.js         paints, stamps, eraser
 js/parchment.js       procedural parchment backgrounds
 js/store.js           world/map model, .mapfold export/import (id remapping), Inkfold interchange
+js/nest.js            map nesting: breadcrumb trail, outline, loop-safe parent choices (no DOM)
+js/calendar.js        custom calendars: day numbers to dates and back (no DOM)
+js/timeline.js        calendar editor, date pickers, timeline view
 js/entries.js         wiki entry model: types, [[id|name]] links, search, reading view (no DOM)
 js/wiki.js            the wiki panel, quick switcher, [[ typing help, linking pins to entries
 js/db.js              IndexedDB wrapper

@@ -1,6 +1,6 @@
 // Mapfold — shared geometry, styles, and the canvas renderer for exports. Author: direk james
 import { PIN_ICONS, PIN_BODY, PIN_HEAD_Y } from './icons.js';
-import { nameOf, isSecret } from './entries.js';
+import { nameOf, isSecret, regionColor, legendFor } from './entries.js';
 
 export const LABEL_STYLES = {
   realm:      { name: 'Realm',      family: 'Cinzel',        weight: 600, italic: false, spacing: 0.32, size: 72, color: '#3a2c1e' },
@@ -148,17 +148,18 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
     for (const r of vis(o.regions)) {
       if (r.points.length < 3) continue;
       const p = new Path2D(pathFor(r.points, { closed: true, smooth: r.smooth }));
+      const rc = regionColor(r, entries);
       ctx.save();
-      ctx.fillStyle = hexToRgba(r.color, r.fill ?? 0.18);
+      ctx.fillStyle = hexToRgba(rc, r.fill ?? 0.18);
       ctx.fill(p);
       ctx.clip(p);
-      ctx.strokeStyle = hexToRgba(r.color, 0.35);
+      ctx.strokeStyle = hexToRgba(rc, 0.35);
       ctx.lineWidth = 18;
       ctx.stroke(p);
       ctx.restore();
       if (r.border !== 'none') {
         ctx.save();
-        ctx.strokeStyle = r.color;
+        ctx.strokeStyle = rc;
         ctx.lineWidth = 3;
         if (r.border === 'dashed') ctx.setLineDash([14, 9]);
         ctx.stroke(p);
@@ -166,7 +167,7 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
       }
       if (r.showName && nameOf(r, entries)) {
         const c = centroid(r.points);
-        drawText(ctx, nameOf(r, entries), c[0], c[1], 'region', r.nameSize || 40, r.color);
+        drawText(ctx, nameOf(r, entries), c[0], c[1], 'region', r.nameSize || 40, rc);
       }
     }
   }
@@ -222,5 +223,37 @@ export function renderMap(ctx, map, sources, { scale = 1, pinScale = 1, withGrid
       }
     }
   }
+  if (map.showLegend) drawLegend(ctx, map, entries, hideSecret);
+  ctx.restore();
+}
+
+/** Faction key in the bottom-left corner, sized to the map so it reads at any export size. */
+function drawLegend(ctx, map, entries, hideSecret) {
+  const rows = legendFor(map, entries, { hideSecret });
+  if (!rows.length) return;
+  const k = Math.max(1, Math.min(map.width, 4000) / 1600);
+  const pad = 16 * k, row = 26 * k, sw = 16 * k, font = `600 ${15 * k}px "Alegreya Sans"`;
+  ctx.save();
+  ctx.font = font;
+  const w = Math.max(...rows.map(r => ctx.measureText(r.name).width)) + sw + pad * 2 + 12 * k;
+  const h = rows.length * row + pad * 2 + row * 0.9;
+  const x = 24 * k, y = map.height - h - 24 * k;
+  ctx.fillStyle = 'rgba(241,230,201,0.92)';
+  ctx.strokeStyle = '#3a2c1e'; ctx.lineWidth = 1.5 * k;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 6 * k); else ctx.rect(x, y, w, h);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3a2c1e'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.font = `600 ${13 * k}px "Cinzel"`;
+  ctx.fillText('REALMS', x + pad, y + pad + row * 0.35);
+  ctx.font = font;
+  rows.forEach((r, i) => {
+    const cy = y + pad + row * 0.9 + i * row + row / 2;
+    ctx.fillStyle = r.color; ctx.globalAlpha = 0.85;
+    ctx.fillRect(x + pad, cy - sw / 2, sw, sw); ctx.globalAlpha = 1;
+    ctx.strokeStyle = r.color; ctx.lineWidth = 2 * k; ctx.strokeRect(x + pad, cy - sw / 2, sw, sw);
+    ctx.fillStyle = '#3a2c1e';
+    ctx.fillText(r.name, x + pad + sw + 12 * k, cy);
+  });
   ctx.restore();
 }

@@ -3,17 +3,18 @@ import { db, uid } from './db.js';
 import { $, $$, esc, toast, dialog, confirmBox, promptBox, download, safeName } from './ui.js';
 import { icon, pinGlyph, PIN_ICONS, PIN_BODY, PIN_HEAD_Y, PALETTE } from './icons.js';
 import { paintParchment } from './parchment.js';
-import { PAINTS, STAMPS, STAMP_SPACING, paintDab, eraseDab, drawStamp, grain, INK } from './terrain.js';
+import { PAINTS, STAMPS, STAMP_SPACING, paintDab, eraseDab, drawStamp, grain, outlineCoast, INK } from './terrain.js';
 import {
   LABEL_STYLES, ROUTE_KINDS, labelFont, pathFor, polylineLength, centroid, hexToRgba,
   formatDistance, hexPath, squarePath, renderMap,
 } from './render.js';
 import { exportWorld, interchangeFor, touchWorld, defaultLayers } from './store.js';
 import { makeZip } from './zip.js';
-import { nameOf, isSecret, plainText } from './entries.js';
+import { nameOf, isSecret, plainText, regionColor, legendFor, displayName } from './entries.js';
+import { trail, outline, nestable } from './nest.js';
 import {
   initWiki, loadWiki, migrateLore, openWiki, closeWiki, isWikiOpen, openSwitcher, flushEntries, entryMap, linkedEntry,
-  wikiFields, bindWikiFields, refreshLinkRow, setName, setLore, setTags,
+  wikiFields, bindWikiFields, refreshLinkRow, setName, setLore, setTags, factionList, newFaction,
 } from './wiki.js';
 import { newMapDialog, saveNewMap } from './library.js';
 
@@ -146,7 +147,15 @@ async function exitEditor() {
 /** An entry was renamed or made secret: redraw the names and styles on the map. */
 function onEntriesChanged() {
   if (!E.map) return;
-  renderRegions(); renderPins(); renderHandles(); renderPlaces();
+  renderRegions(); renderPins(); renderHandles(); renderPlaces(); renderLegend();
+}
+
+/** Key to the factions shown on this map (the same one the exported image draws). */
+function renderLegend() {
+  const box = $('#legend');
+  const rows = E.map && E.map.showLegend ? legendFor(E.map, entryMap()) : [];
+  box.hidden = !rows.length;
+  box.innerHTML = rows.length ? `<p>Realms</p>` + rows.map(r => `<div><i style="--c:${r.color}"></i>${esc(r.name)}</div>`).join('') : '';
 }
 
 /** Open a map and select a pin, region or route on it. */
@@ -160,6 +169,87 @@ async function jumpTo(mapId, kind, id) {
   centerOn(c[0], c[1]);
 }
 
+// ------------------------------------------------------------------ maps inside maps
+
+function mapsById() { return new Map(E.maps.map(m => [m.id, m])); }
+
+/** World › Realm › Varn: every map from the top down to this one, each a way back up. */
+function renderCrumbs() {
+  const box = $('#crumb-trail');
+  if (!E.map) { box.innerHTML = ''; return; }
+  const chain = trail(E.map, mapsById());
+  box.innerHTML = chain.map((m, i) => {
+    const last = i === chain.length - 1;
+    return `${i ? '<svg class="crumb-sep" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4"/></svg>' : ''}${last
+      ? `<span class="crumb-map" aria-current="page">${esc(m.name)}</span>`
+      : `<button class="crumb-up" data-map="${m.id}" title="Back up to ${esc(m.name)}">${esc(m.name)}</button>`}`;
+  }).join('');
+  $$('.crumb-up', box).forEach(b => b.onclick = () => loadMap(b.dataset.map));
+}
+
+function nestFields(o) {
+  const child = o.childMapId && E.maps.find(m => m.id === o.childMapId);
+  const options = nestable(E.map, E.maps).filter(m => m.id !== o.childMapId);
+  return `
+    <div class="nest-box">
+      <p class="field-label wb-title">${icon('map')}Map inside</p>
+      ${child
+        ? `<div class="wb-link"><button type="button" class="wb-chip" data-nest="open" title="Open this map (or double-click the pin)">${icon('map')}<span><strong>${esc(child.name)}</strong><small>Open the map inside</small></span></button>
+           <button type="button" class="ph-btn" data-nest="unlink" title="Stop opening this map">${icon('unlink')}</button></div>`
+        : `<div class="wb-link"><button type="button" class="btn btn-sm" data-nest="new">${icon('plus')}New map here</button>
+           ${options.length ? `<button type="button" class="btn btn-sm" data-nest="choose">${icon('link')}Use an existing map</button>` : ''}</div>
+           <span class="wb-hint">Double-click the pin to step inside.</span>`}
+    </div>`;
+}
+
+async function linkChild(pin, child) {
+  checkpoint();
+  pin.childMapId = child.id;
+  child.parentMapId = E.map.id;
+  child.updated = Date.now();
+  await db.putMap(child);
+  markDirty();
+  renderPins(); renderMapList(); renderCrumbs();
+}
+
+async function bindNest(box, o) {
+  box.addEventListener('click', async ev => {
+    const act = ev.target.closest('[data-nest]')?.dataset.nest;
+    if (!act) return;
+    if (act === 'open') { if (o.childMapId) loadMap(o.childMapId); }
+    else if (act === 'unlink') {
+      checkpoint();
+      const child = E.maps.find(m => m.id === o.childMapId);
+      if (child && child.parentMapId === E.map.id) { child.parentMapId = null; await db.putMap(child); }
+      o.childMapId = null;
+      markDirty(); renderPins(); renderMapList(); renderCrumbs(); renderInspector();
+    } else if (act === 'new') {
+      const res = await newMapDialog({ title: `A map inside ${nameOf(o, entryMap()) || 'this pin'}`, defaultName: nameOf(o, entryMap()) });
+      if (!res) return;
+      await flush();
+      const m = await saveNewMap(E.world.id, res, E.maps.length);
+      m.parentMapId = E.map.id;
+      await db.putMap(m);
+      E.maps.push(m);
+      const pin = o;
+      pin.childMapId = m.id;
+      markDirty();
+      await loadMap(m.id);
+      toast(`${m.name} opens from its pin. Use the trail at the top to climb back.`, 'good', 4200);
+    } else if (act === 'choose') {
+      const options = nestable(E.map, E.maps).filter(m => m.id !== o.childMapId);
+      const { value, form } = await dialog({
+        title: 'Which map is inside?',
+        body: `<div class="pick-list">${outline(options).map(({ map: m, depth }) => `<label class="pick-row" style="padding-left:${10 + depth * 16}px"><input type="radio" name="m" value="${m.id}"><span><strong>${esc(m.name)}</strong></span></label>`).join('')}</div>`,
+        buttons: [{ label: 'Cancel', value: null }, { label: 'Use this map', value: 'ok', primary: true, validate: f => !!f.querySelector('[name=m]:checked') }],
+      });
+      if (value !== 'ok') return;
+      const child = E.maps.find(m => m.id === form.querySelector('[name=m]:checked').value);
+      if (child) { await linkChild(o, child); renderInspector(); }
+    }
+  });
+}
+
 // ------------------------------------------------------------------ load map
 
 async function loadMap(id) {
@@ -170,7 +260,7 @@ async function loadMap(id) {
   E.map = map;
   E.sel = null; E.draft = null; E.measure = null; E.undo = []; E.redo = [];
   E.ts = map.terrainScale || 1;
-  $('#crumb-map').textContent = map.name;
+  renderCrumbs();
 
   worldEl.style.width = map.width + 'px';
   worldEl.style.height = map.height + 'px';
@@ -327,6 +417,7 @@ function renderAll() {
   renderDraft();
   applyLayerState();
   renderPlaces();
+  renderLegend();
   updateScalebar();
 }
 
@@ -356,12 +447,13 @@ function renderRegions() {
     const cp = el('clipPath', { id: 'rc-' + r.id, class: 'rclip' }, defs);
     el('path', { d }, cp);
     const g = el('g', { class: 'obj region' + secretClass(r) + (isSel('region', r.id) ? ' selected' : ''), 'data-type': 'region', 'data-id': r.id }, G.regions);
-    el('path', { d, fill: hexToRgba(r.color, r.fill ?? 0.18), class: 'rg-fill' }, g);
-    el('path', { d, fill: 'none', stroke: hexToRgba(r.color, 0.35), 'stroke-width': 18, 'clip-path': `url(#rc-${r.id})` }, g);
-    if (r.border !== 'none') el('path', { d, fill: 'none', stroke: r.color, 'stroke-width': 3, 'stroke-dasharray': r.border === 'dashed' ? '14 9' : null, class: 'rg-border' }, g);
+    const rc = regionColor(r, entryMap());
+    el('path', { d, fill: hexToRgba(rc, r.fill ?? 0.18), class: 'rg-fill' }, g);
+    el('path', { d, fill: 'none', stroke: hexToRgba(rc, 0.35), 'stroke-width': 18, 'clip-path': `url(#rc-${r.id})` }, g);
+    if (r.border !== 'none') el('path', { d, fill: 'none', stroke: rc, 'stroke-width': 3, 'stroke-dasharray': r.border === 'dashed' ? '14 9' : null, class: 'rg-border' }, g);
     if (r.showName && nameOf(r, entryMap())) {
       const [cx, cy] = centroid(r.points);
-      textEl(g, nameOf(r, entryMap()), cx, cy, 'region', r.nameSize || 40, r.color, 0);
+      textEl(g, nameOf(r, entryMap()), cx, cy, 'region', r.nameSize || 40, rc, 0);
     }
   }
 }
@@ -425,6 +517,10 @@ function renderPins() {
     el('circle', { cx: 0, cy: PIN_HEAD_Y, r: 9.5, class: 'pin-head' }, g);
     const gl = el('g', { transform: `translate(-7.5 ${PIN_HEAD_Y - 7.5}) scale(0.625)` }, g);
     el('path', { d: (PIN_ICONS[p.icon] || PIN_ICONS.marker).d, class: 'pin-glyph' }, gl);
+    if (p.childMapId) {
+      el('circle', { cx: 12, cy: -32, r: 7, class: 'pin-nest' }, g);
+      el('path', { d: 'M9.6 -35.2L15 -32 9.6 -28.8z', class: 'pin-nest-arrow' }, g);
+    }
     if (showNames && nameOf(p, entryMap())) textEl(g, nameOf(p, entryMap()), 0, 14, 'settlement', 15, '#2a1d10', 0, { class: 'pin-name' });
   }
 }
@@ -527,9 +623,9 @@ function renderLayers() {
 // ------------------------------------------------------------------ map list
 
 function renderMapList() {
-  $('#map-list').innerHTML = E.maps.map(m => `
-    <li class="map-item ${m.id === E.map?.id ? 'active' : ''}" data-id="${m.id}">
-      <button class="mi-open" title="Open ${esc(m.name)}">${icon('map')}<span>${esc(m.name)}</span></button>
+  $('#map-list').innerHTML = outline(E.maps).map(({ map: m, depth }) => `
+    <li class="map-item ${m.id === E.map?.id ? 'active' : ''}" data-id="${m.id}" style="--depth:${Math.min(depth, 5)}">
+      <button class="mi-open" title="Open ${esc(m.name)}">${icon(depth ? 'chevron' : 'map')}<span>${esc(m.name)}</span></button>
       <button class="mi-act" data-act="rename" title="Rename map">${icon('edit')}</button>
       <button class="mi-act" data-act="delete" title="Delete map">${icon('trash')}</button>
     </li>`).join('');
@@ -547,19 +643,26 @@ async function renameMap(id) {
   const n = await promptBox('Rename map', 'Map name', m.name, 'Rename');
   if (!n) return;
   m.name = n;
-  if (m.id === E.map.id) { $('#crumb-map').textContent = n; markDirty(); renderInspector(); }
+  if (m.id === E.map.id) { markDirty(); renderInspector(); }
   else { m.updated = Date.now(); await db.putMap(m); }
+  renderCrumbs();
   renderMapList();
 }
 
 async function deleteMap(id) {
   if (E.maps.length === 1) { toast('A world needs at least one map.', 'bad'); return; }
   const m = E.maps.find(m => m.id === id);
-  const ok = await confirmBox('Delete this map?', `<strong>${esc(m.name)}</strong>, its terrain paint and every pin, label, region and route on it will be removed. This cannot be undone.`, { okLabel: 'Delete map' });
+  const ok = await confirmBox('Delete this map?', `<strong>${esc(m.name)}</strong>, its terrain paint and every pin, label, region and route on it will be removed.${E.maps.some(x => x.parentMapId === id) ? ' Maps inside it stay, and move up to the top level.' : ''} This cannot be undone.`, { okLabel: 'Delete map' });
   if (!ok) return;
   if (id === E.map.id) { E.dirtyMap = false; E.dirtyTerrain = false; clearTimeout(E.saveTimer); }
   await db.deleteMap(id);
   E.maps = E.maps.filter(x => x.id !== id);
+  for (const x of E.maps) {
+    let changed = false;
+    if (x.parentMapId === id) { x.parentMapId = null; changed = true; }
+    for (const p of x.objects.pins) if (p.childMapId === id) { p.childMapId = null; changed = true; }
+    if (changed) { if (x === E.map && x.id !== id) markDirty(); else { x.updated = Date.now(); db.putMap(x); } }
+  }
   E.maps.forEach((x, i) => { if (x.order !== i) { x.order = i; db.putMap(x); } });
   if (id === E.map.id) { E.map = null; await loadMap(E.maps[0].id); }
   else renderMapList();
@@ -603,7 +706,7 @@ function renderPlaces() {
     if (!items.length) continue;
     html += `<div class="pl-group"><p class="pl-title">${title}</p>` + items.map(x => {
       const ico = type === 'pin' ? `<span class="pl-ico" style="--c:${x.color}">${pinGlyph(x.icon)}</span>`
-        : type === 'region' ? `<span class="pl-ico pl-swatch" style="--c:${x.color}"></span>`
+        : type === 'region' ? `<span class="pl-ico pl-swatch" style="--c:${regionColor(x, entryMap())}"></span>`
         : type === 'route' ? `<span class="pl-ico pl-line" style="--c:${x.color || ROUTE_KINDS[x.kind].color}"></span>`
         : `<span class="pl-ico pl-text">Aa</span>`;
       const unnamed = type !== 'label' && !nameOf(x, entryMap());
@@ -666,8 +769,11 @@ function checkpoint() { pushObjects(snapshot()); }
 function pushPaint(entry) {
   E.undo.push(entry);
   // keep paint memory bounded
+  // keep paint memory bounded: at most 30 steps and about 200 MB of saved pixels (the newest step always stays)
+  const bytes = u => u.before.data.length + u.after.data.length;
   let paints = E.undo.filter(u => u.kind === 'paint');
-  while (paints.length > 30) { E.undo.splice(E.undo.indexOf(paints[0]), 1); paints.shift(); }
+  let total = paints.reduce((n, u) => n + bytes(u), 0);
+  while (paints.length > 1 && (paints.length > 30 || total > 200e6)) { total -= bytes(paints[0]); E.undo.splice(E.undo.indexOf(paints[0]), 1); paints.shift(); }
   E.redo = [];
   updateUndoButtons();
 }
@@ -992,6 +1098,19 @@ function endStroke(d) {
   }
 }
 
+function outlineCoasts() {
+  if (E.map.layers.terrain.locked || !E.map.layers.terrain.visible) { toast('The Terrain paint layer is locked or hidden. Change it in Layers first.', 'bad'); return; }
+  const W = terrainCanvas.width, H = terrainCanvas.height;
+  const before = E.tctx.getImageData(0, 0, W, H);
+  let found = 0;
+  try { found = outlineCoast(E.tctx, W, H); }
+  catch (err) { console.error(err); E.tctx.putImageData(before, 0, 0); toast('That map is too large to outline in this browser.', 'bad'); return; }
+  if (!found) { toast('Paint some shallows or deep sea first, then outline the coasts.', 'bad', 4200); return; }
+  pushPaint({ kind: 'paint', x: 0, y: 0, before, after: E.tctx.getImageData(0, 0, W, H) });
+  markTerrainDirty();
+  toast('Coastlines inked. Undo with Ctrl+Z.');
+}
+
 async function clearTerrain() {
   const ok = await confirmBox('Clear all terrain paint?', 'Every brush stroke and stamp on this map will be wiped. You can undo this with Ctrl+Z.', { okLabel: 'Clear terrain' });
   if (!ok) return;
@@ -1185,7 +1304,14 @@ function onDbl(e) {
     finishDraft();
     return;
   }
-  if (E.tool === 'select' && e.target.closest('.obj.label')) {
+  // The viewport holds pointer capture, so dblclick targets it rather than the thing under the cursor.
+  const hit = document.elementFromPoint(e.clientX, e.clientY);
+  const pinEl = E.tool === 'select' && hit?.closest('.obj.pin');
+  if (pinEl) {
+    const pin = E.map.objects.pins.find(p => p.id === pinEl.dataset.id);
+    if (pin?.childMapId && E.maps.some(m => m.id === pin.childMapId)) { loadMap(pin.childMapId); return; }
+  }
+  if (E.tool === 'select' && hit?.closest('.obj.label')) {
     setTimeout(() => $('#inspector [data-focus]')?.select?.(), 20);
   }
 }
@@ -1271,6 +1397,20 @@ function slider(name, label, min, max, step, value, fmt = v => v) {
     <input type="range" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`;
 }
 
+function factionField(o) {
+  const f = o.factionId && entryMap().get(o.factionId);
+  const list = factionList();
+  return `
+    <label class="field"><span>Faction</span>
+      <select name="factionId" data-custom-faction>
+        <option value="">None, I choose the colour</option>
+        ${list.map(x => `<option value="${x.id}" ${o.factionId === x.id ? 'selected' : ''}>${esc(displayName(x))}</option>`).join('')}
+        <option value="__new">New faction…</option>
+      </select></label>
+    ${f && f.color ? `<p class="insp-hint faction-note"><i style="--c:${f.color}"></i>This territory uses ${esc(displayName(f))}’s colour. Change it in the wiki.</p>`
+      : `<p class="field-label">Colour</p>${swatches('color', o.color)}`}`;
+}
+
 function secretField(o) {
   return `<label class="check secret-check"><input type="checkbox" name="secret" ${o.secret ? 'checked' : ''}><span><strong>Secret</strong> Only you can see this. It is left out of player exports.</span></label>`;
 }
@@ -1290,6 +1430,7 @@ function renderInspector() {
       <p class="field-label">Symbol</p>
       <div class="glyphs">${Object.entries(PIN_ICONS).map(([k, v]) => `<button type="button" class="glyph ${o.icon === k ? 'on' : ''}" data-icon="${k}" title="${v.name}">${pinGlyph(k)}</button>`).join('')}</div>
       <p class="field-label">Colour</p>${swatches('color', o.color)}
+      ${nestFields(o)}
       ${secretField(o)}
       ${wikiFields(o, 'pin')}`;
   } else if (type === 'label') {
@@ -1307,7 +1448,7 @@ function renderInspector() {
       <label class="field"><span>Name</span><input name="name" data-focus value="${esc(nameOf(o, entryMap()))}" placeholder="The Ashen Reach"></label>
       <label class="check"><input type="checkbox" name="showName" ${o.showName ? 'checked' : ''}><span>Write the name on the map</span></label>
       ${o.showName ? slider('nameSize', 'Name size', 14, 300, 1, o.nameSize || 40) : ''}
-      <p class="field-label">Colour</p>${swatches('color', o.color)}
+      ${factionField(o)}
       ${slider('fill', 'Fill', 0, 0.6, 0.02, o.fill ?? 0.18, v => Math.round(v * 100) + '%')}
       <p class="field-label">Border</p>${seg('border', { solid: 'Solid', dashed: 'Dashed', none: 'None' }, o.border)}
       <label class="check"><input type="checkbox" name="smooth" ${o.smooth ? 'checked' : ''}><span>Smooth the outline</span></label>
@@ -1357,7 +1498,7 @@ function bindInspector(box, o, type) {
   form.addEventListener('input', e => {
     const t = e.target;
     const n = t.name;
-    if (!n || t.type === 'radio' || t.type === 'checkbox' || t.dataset.custom) return;
+    if (!n || t.type === 'radio' || t.type === 'checkbox' || t.dataset.custom || t.dataset.customFaction !== undefined) return;
     if (type !== 'label' && (n === 'name' || n === 'lore' || n === 'tags')) {
       once();
       if (n === 'name') setName(o, type, t.value);
@@ -1375,8 +1516,18 @@ function bindInspector(box, o, type) {
     live();
     if (n === 'text') debouncePlaces();
   });
-  form.addEventListener('change', e => {
+  form.addEventListener('change', async e => {
     const t = e.target;
+    if (t.dataset.customFaction !== undefined) {
+      checkpoint();
+      if (t.value === '__new') {
+        const name = await promptBox('New faction', 'Faction name', '', 'Create');
+        if (!name) { renderInspector(); return; }
+        o.factionId = newFaction(name).id;
+      } else o.factionId = t.value || null;
+      live(); renderInspector(); renderPlaces(); renderLegend();
+      return;
+    }
     if (t.type === 'radio' || t.type === 'checkbox') {
       checkpoint();
       o[t.name] = t.type === 'checkbox' ? t.checked : t.value;
@@ -1389,6 +1540,7 @@ function bindInspector(box, o, type) {
       live(); renderInspector(); renderPlaces();
     }
   });
+  if (type === 'pin') bindNest(box, o);
   if (type !== 'label') bindWikiFields(box, o, type, { refresh: () => { rerenderType(type); renderInspector(); renderPlaces(); } });
   $$('[data-color]', box).forEach(b => b.onclick = () => {
     checkpoint(); o.color = b.dataset.color || null; live(); renderInspector(); renderPlaces();
@@ -1434,6 +1586,7 @@ function renderMapSettings(box) {
       </div>
       <p class="insp-hint">${m.grid.type === 'none' ? 'Distances use an invisible grid. Turn the grid on to see the cell size you are measuring with.' : 'Routes and the measure tool use this scale.'}</p>
       <label class="check"><input type="checkbox" name="pinnames" ${m.showPinNames !== false ? 'checked' : ''}><span>Show pin names on the map</span></label>
+      <label class="check"><input type="checkbox" name="legend" ${m.showLegend ? 'checked' : ''}><span>Show a key to the factions on this map</span></label>
     </form>
     <p class="insp-tip">Select anything on the map to edit it here.</p>`;
 
@@ -1443,7 +1596,7 @@ function renderMapSettings(box) {
     const t = e.target;
     if (t.name === 'mapname') {
       m.name = t.value.trim() || 'Untitled map';
-      $('#crumb-map').textContent = m.name;
+      renderCrumbs();
       const li = $(`#map-list [data-id="${m.id}"] .mi-open span`); if (li) li.textContent = m.name;
     } else if (t.name === 'gridsize') { m.grid.size = +t.value; t.closest('label').querySelector('output').textContent = t.value + ' px'; renderGrid(); updateScalebar(); }
     else if (t.name === 'gridopacity') { m.grid.opacity = +t.value; t.closest('label').querySelector('output').textContent = Math.round(t.value * 100) + '%'; renderGrid(); }
@@ -1459,6 +1612,7 @@ function renderMapSettings(box) {
       renderGrid(); renderLayers(); applyLayerState(); renderMapSettings(box);
     } else if (t.name === 'unit') { m.scale.unit = t.value; updateScalebar(); }
     else if (t.name === 'pinnames') { m.showPinNames = t.checked; renderPins(); }
+    else if (t.name === 'legend') { m.showLegend = t.checked; renderLegend(); }
     else return;
     markDirty();
   });
@@ -1501,7 +1655,7 @@ function renderBrushPanel(box) {
       ${!erasing && b.mode === 'stamp' && b.stamp !== 'ink' ? slider('bspacing', 'Spacing', 0.5, 2.5, 0.1, b.spacing, v => (+v).toFixed(1) + '×') : ''}
     </form>
     <p class="insp-tip">${erasing ? 'Erasing only touches terrain paint. Pins, labels and your base image stay put.' : 'Lay down colour first, then stamp mountains and forests on top. Size follows your screen, so zoom in for fine detail. <kbd>[</kbd> and <kbd>]</kbd> change it.'}</p>
-    <div class="insp-foot"><button class="btn btn-sm btn-danger-ghost" id="btn-clear-terrain">${icon('trash')}Clear terrain</button></div>`;
+    <div class="insp-foot">${erasing ? '' : `<button class="btn btn-sm" id="btn-coast" title="Ink a coastline wherever sea paint meets land">${icon('wave')}Outline coasts</button>`}<button class="btn btn-sm btn-danger-ghost" id="btn-clear-terrain">${icon('trash')}Clear terrain</button></div>`;
 
   $$('[data-paint]', box).forEach(x => x.onclick = () => { b.mode = 'paint'; b.paint = x.dataset.paint; renderBrushPanel(box); });
   $$('[data-stamp]', box).forEach(x => x.onclick = () => {
@@ -1515,6 +1669,7 @@ function renderBrushPanel(box) {
     if (t.name === 'bspacing') { b.spacing = +t.value; if (out) out.textContent = (+t.value).toFixed(1) + '×'; }
   });
   $('#btn-clear-terrain').onclick = clearTerrain;
+  $('#btn-coast')?.addEventListener('click', outlineCoasts);
 }
 
 // ------------------------------------------------------------------ help

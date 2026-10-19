@@ -19,7 +19,7 @@ export const ENTRY_TYPES = {
   lore:      { name: 'Lore',      plural: 'Lore',       icon: 'scroll', hint: 'History, myths, rules, roads',
     fields: [{ key: 'era', label: 'Era', ph: 'When it happened' }] },
   event:     { name: 'Event',     plural: 'Events',     icon: 'clock',  hint: 'Battles, festivals, plots',
-    fields: [{ key: 'when', label: 'When', ph: 'Date or era' }, { key: 'where', label: 'Where', ph: 'Place' }] },
+    fields: [{ key: 'when', label: 'Date note', ph: 'Dusk, or “the old age”' }, { key: 'where', label: 'Place note', ph: 'Used when no place is linked' }] },
   note:      { name: 'Note',      plural: 'Notes',      icon: 'edit',   hint: 'Anything else',
     fields: [] },
 };
@@ -45,9 +45,27 @@ export function nameOf(o, byId) {
   return (e && e.name && e.name.trim()) || o.name || '';
 }
 
-/** Secret if flagged itself, or linked to a secret entry. */
+/** Secret if flagged itself, or linked to a secret entry (or, for a region, held by a secret faction). */
 export function isSecret(o, byId) {
-  return !!(o.secret || (o.entryId && byId?.get(o.entryId)?.secret));
+  return !!(o.secret || (o.entryId && byId?.get(o.entryId)?.secret) || (o.factionId && byId?.get(o.factionId)?.secret));
+}
+
+/** A region takes its faction's colour when the faction has one. */
+export function regionColor(r, byId) {
+  const f = r.factionId && byId?.get(r.factionId);
+  return (f && f.color) || r.color;
+}
+
+/** Factions drawn on a map, for the legend: one row per faction, in the order they first appear. */
+export function legendFor(map, byId, { hideSecret = false } = {}) {
+  const seen = new Map();
+  for (const r of map.objects.regions) {
+    const f = r.factionId && byId?.get(r.factionId);
+    if (!f || !f.color || seen.has(f.id)) continue;
+    if (hideSecret && isSecret(r, byId)) continue;
+    seen.set(f.id, { id: f.id, name: displayName(f), color: f.color });
+  }
+  return [...seen.values()];
 }
 
 // ---------- links ----------
