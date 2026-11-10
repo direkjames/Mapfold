@@ -1,139 +1,90 @@
+<div align="center">
+
 # Mapfold
 
-Offline worldbuilding and map making for dungeon masters, game masters and writers.
-Sister app to **Inkfold**. Author: **direk james**.
+**Offline worldbuilding and map making for dungeon masters, game masters and writers.**
 
-Everything is stored in the browser (IndexedDB). Nothing is uploaded anywhere.
-Export a `.mapfold` file to back up or move a world between devices.
+![Status: Shipped](https://img.shields.io/badge/status-shipped-brightgreen)
+![Version 1.5](https://img.shields.io/badge/version-1.5-9b3a32)
+![Platform: Web and installable](https://img.shields.io/badge/platform-web%20%2B%20installable-blue)
+![Works offline](https://img.shields.io/badge/works-offline-b58a3a)
 
-## Running it
+<img src="docs/screenshots/hero-1920x1080.png" alt="A hand-inked fantasy map called The Shattered Coast, pinned to a table next to the Mapfold name" width="880">
 
-Mapfold uses ES modules and a service worker, so it must be served over HTTP
-(opening `index.html` straight from disk will not work).
+<img src="docs/screenshots/hero-1680x1050.png" alt="Mapfold's worlds shelf, map editor and world wiki side by side" width="880">
 
-- **VS Code:** right-click `index.html` → *Open with Live Server*.
-- **GitHub Pages:** put this folder at `direkjames.github.io/mapfold/`. All paths are relative.
+## About
 
-## What's in Phase 1
+Mapfold lets you draw maps, write down your world, and take it all to the table. Paint terrain, drop pins, name regions, and keep every character, place and story in a wiki that links to the map.
 
-- **Worlds shelf** with thumbnails, rename, export, delete, and `.mapfold` import
-- **Maps:** several per world, from blank parchment (4 sizes, 4 parchment styles) or your own image
-- **Terrain brush:** 8 land and sea paints, plus mountains, hills, trees, pines, reeds, waves and an ink pen for coastlines. Eraser and "Clear terrain"
-- **Pins** (15 symbols), **labels** (5 lettering styles, size, rotation), **regions** (fill, border, name on map), **routes** (road, trail, river, sea lane, with length and travel time on foot)
-- **Lore and tags** on every pin, region and route, plus a searchable Places list
-- **Grid** (square or hex), map **scale**, scale bar and **measure** tool
-- **Layers** with show/hide and lock
-- **Undo/redo** for everything, including brush strokes. Autosaves as you work
-- **Exports:** world file (`.mapfold`), full-size PNG, and an **Inkfold map** package
-- Installable (PWA) and works offline after the first visit
+Everything is saved in your browser. Nothing is uploaded anywhere. Export a `.mapfold` file to back up a world or move it to another device. Mapfold is the sister app of **Inkfold**.
+
+*The world in these pictures, The Shattered Coast, is a sample made for this page.*
+
+**[Try it: direkjames.github.io/Mapfold](https://direkjames.github.io/Mapfold/)**
+
+</div>
+
+## Features
+
+**Worlds and maps**
+- A **worlds shelf** with thumbnails, where you can rename, export, delete and import worlds
+- **Several maps per world**, from blank parchment (four sizes and four parchment styles) or from your own image
+- **Maps inside maps:** a pin can open a child map, with a breadcrumb trail so you always know where you are
+
+**Drawing**
+- **Terrain brush** with eight land and sea paints, plus stamps for mountains, hills, trees, pines, reeds, waves, dunes, marsh, towns, castles and ruins, and an ink pen
+- **Outline coasts** to ink a coastline wherever sea meets land
+- **Pins** with 15 symbols, **labels** in five lettering styles, **regions** with fill and border, and **routes** (road, trail, river and sea lane) with length and travel time
+- **Grid** (square or hex), map scale, scale bar and a measure tool
+- **Layers** you can show, hide and lock
+- **Undo and redo** for everything, including brush strokes, and autosave as you work
+
+**The world wiki**
+- Entries for **places, characters, factions, items, lore, events and notes**, with aliases, tags and free-form notes
+- **`[[Links]]`** between entries that never break when you rename something, with previews on hover
+- **Search everywhere** and a quick switcher (`Ctrl+K`)
+- **Factions with territory:** give a region a faction and it takes its color, with an optional map key
+- A **calendar and timeline** you set up yourself, with events tied to places
+
+**At the table**
+- **Player view:** a second window for your TV or projector that shows only what players should see
+- **Fog of war:** paint to reveal or cover parts of the map
+- **Party and travel:** place a party token and travel along roads, trails and rivers, with days passing on your calendar
+- **Secrets:** mark anything as secret, or hide text with `||double bars||`. Secrets stay out of player views and exports.
+
+**Sharing and exporting**
+- Export a **world file** (`.mapfold`), a **full-size PNG** (player image or GM copy), or **share with Inkfold** to bring your maps and places into your story
+- **Installable and offline** after your first visit
 
 Press `?` in the editor for every keyboard shortcut.
 
-## What's new in 1.1 (Phase 2A: foundations)
+## Getting started
 
-- **Secret flag.** Any pin, label, region or route can be marked *Secret*. You still see it, faded with a dashed outline and a lock in the Places list, but it is left out of the player **Map image** and off the picture sent to Inkfold. **Map image, GM copy** keeps everything.
-- **Safer backups.** The shelf tells you which worlds have changes that exist only in this browser (after 3 days without an export), and the footer says honestly whether the browser agreed to protect your data from automatic cleanup.
-- **Restoring keeps ids.** Importing a `.mapfold` into a browser that doesn't have the world keeps every id, so wiki links and Inkfold's references still match. Importing a second copy gives the copy fresh ids and remaps everything that points at them.
-- **Fonts are bundled**, so lettering looks right on the very first offline visit, and map exports no longer fall back to a default font.
-- Under the hood: database version 2 with a wiki `entries` store (used from Phase 2B), world file version 2, and stricter checks on imported files (damaged or oversized data is rejected or clamped).
+1. Open [direkjames.github.io/Mapfold](https://direkjames.github.io/Mapfold/) in your browser.
+2. Press **New world**, pick a map size and a parchment, or use your own image.
+3. Paint terrain, then add pins, labels, regions and routes.
+4. Press **W** to open the wiki and write down who and what is on your map.
+5. Press **Export** to save a `.mapfold` backup or a PNG.
 
-## What's new in 1.2 (Phase 2B: the wiki)
+To use it like an app, press **Install** in your browser.
 
-- **A wiki for every world.** Press **W** (or the Wiki button) to open it. Entries come in seven types (Place, Character, Faction, Item, Lore, Event, Note), each with its own short fields, aliases, tags and free-form notes. Notes support `# headings`, `- lists`, `**bold**` and `*italic*`.
-- **`[[Links]]`.** Type `[[` while writing to link to another entry, or to create one that doesn't exist yet. Links are stored by id, so renaming an entry never breaks them. Hover a link for a preview. Every entry shows where it is **On the map** and what it is **Mentioned in**.
-- **Search everywhere.** The wiki searches names, aliases, tags, notes and fields, with type and tag filters. **Ctrl/Cmd + K** jumps to any entry, pin, region or map (Shift + Enter shows an entry on the map).
-- **Pins, regions and routes use entries.** Select one and use *Link to entry*, or just start writing lore: an entry is created for you. The name on the map follows the entry. Lore you wrote on pins in earlier versions is moved into entries the first time a world opens.
-- **Secret entries** hide everything linked to them from player exports. The Inkfold package carries each linked entry's id, name, tags and plain-text notes (secret ones are left out), so Inkfold can reference places by id.
+## Requirements
 
-## What's new in 1.3 (Phase 2C: structure of the world)
+- A modern web browser (Chrome, Edge, Firefox or Safari) on a computer. A large screen works best.
 
-- **Maps inside maps.** A pin can open a child map (*Opens map* in the pin inspector, or double-click the pin). A breadcrumb trail shows where you are, and the Maps list is an outline. A map can never be put inside itself or one of its own children.
-- **Factions with territory.** Factions are wiki entries with a colour. Give a region a faction and it takes that colour (change it once, every territory follows). Tick *Show a key* in the map settings for an on-screen and exported legend. A secret faction's regions and key stay out of player images.
-- **Calendar and timeline.** *Calendar* (in the wiki) sets your months, days per month, weekday names, eras and "today". Events get a date (and optional end date) and the places they happened at. *Timeline* lists them in order, grouped by year, with a place filter. Place entries show *Events here*. Dates are stored as one day number, so a calendar change never loses an event.
-- **Terrain polish.** Five new stamps (Dunes, Marsh, Town, Castle, Ruins) and **Outline coasts**, which inks a coastline wherever sea paint meets land (one undo step). Undo history is now capped by memory as well as step count, so very large maps stay safe.
+## Built with
 
-Not included: stamps are painted into the terrain image, so they can't be picked up and moved afterwards. Use undo or the eraser.
+- HTML, CSS and JavaScript, with no build step and no dependencies
+- IndexedDB for saving, and a service worker for offline use
+- Alegreya, Alegreya Sans and Cinzel fonts (SIL Open Font License), bundled with the app
 
-## What's new in 1.4 (Phase 3: at the table)
+Want to run it yourself? See [Developing Mapfold](docs/DEVELOPING.md).
 
-- **Player view.** *Players* in the top bar opens a second window to drag onto your TV or projector (press **F** there for fullscreen). It shows a player-safe picture of the current map and nothing else: secret pins, regions, factions and entries, and fogged areas are painted out before the picture is sent, and the window never opens your world database. Choose whether players see the whole map or follow your pan and zoom, or black the screen out while you set up.
-- **Fog of war** (**F**). One fog per map. Paint to reveal or cover, reveal or cover a whole region in one click, reveal or cover everything, undo and redo. You see through the fog, dimmed. *Map image* exports include the fog; the GM copy does not.
-- **Party and travel** (**K**). Place a party token, then click to travel: along a road, trail or river if you click near one, or overland if not. Pick a pace (slow, normal, fast) and set how far the party goes in a day. Days pass on your calendar and every trip is written to the timeline as a *Travel* event linked to the places at each end.
-- **Secret text.** Wrap anything in `||double bars||` inside a note and only you see it. It is highlighted in the wiki and left out of anything that leaves the app. A forgotten closing `||` hides the rest of the note rather than leaking it.
-- Imports are now more forgiving: a world file missing its grid, scale or base map gets safe defaults instead of crashing the editor.
+## Status
 
-## What's new in 1.5 (Phase 4: the Inkfold link)
+Shipped.
 
-- **Share with Inkfold.** *Export → Share with Inkfold* keeps every map of the world available to Inkfold in the same browser (both apps live on `direkjames.github.io`). In Inkfold, open **Maps → Import from Mapfold**. It brings across the picture, scale, pins, labels, regions, routes and nested maps, and adds your *Place* entries to Inkfold's story bible.
-- **Stays up to date.** Edit a shared map here and the share refreshes itself a few seconds later. In Inkfold, **Check for update** refreshes what came from Mapfold, removes what you deleted here, and leaves anything drawn in Inkfold alone. Maps deleted here are un-shared, and **Stop sharing** removes everything.
-- **Secrets never cross.** Secret pins, labels, regions, routes and entries, and `||secret text||`, are left out of the share entirely. Sharing is never written into `.mapfold` files.
-- The old file route is still there as *Inkfold file* (same secrets rule).
+## Credits / License
 
-## Files
-
-```
-index.html
-manifest.webmanifest
-sw.js                 offline cache (bump VERSION when you ship changes)
-css/styles.css
-css/fonts.css         bundled fonts (see fonts/)
-fonts/                Alegreya, Alegreya Sans and Cinzel (SIL Open Font License)
-icons/
-js/app.js             entry, screen switching
-js/library.js         worlds shelf, new world / new map dialog
-js/editor.js          the editor: view, tools, inspector, history, saving, exports
-js/render.js          shared geometry and the canvas renderer used for exports
-js/terrain.js         paints, stamps, eraser
-js/parchment.js       procedural parchment backgrounds
-js/link.js            the Inkfold share (publishes to the mapfold-link database)
-js/store.js           world/map model, .mapfold export/import (id remapping), Inkfold interchange
-js/nest.js            map nesting: breadcrumb trail, outline, loop-safe parent choices (no DOM)
-js/calendar.js        custom calendars: day numbers to dates and back (no DOM)
-js/timeline.js        calendar editor, date pickers, timeline view
-js/table.js           fog masks, party token, travel maths (no DOM)
-js/tabletop.js        fog and party panels, the player window sync
-js/player.js          the player window (receives pictures only)
-player.html           the player window page
-js/entries.js         wiki entry model: types, [[id|name]] links, search, reading view (no DOM)
-js/wiki.js            the wiki panel, quick switcher, [[ typing help, linking pins to entries
-js/db.js              IndexedDB wrapper
-js/zip.js             small ZIP writer/reader (no dependencies)
-js/icons.js           UI icons, pin symbols, colour palette
-js/ui.js              dialogs, toasts, helpers
-```
-
-## Inkfold interchange (for the Inkfold importer)
-
-"Export → Inkfold file" downloads `<map>.inkfold-map.zip` containing:
-
-| File | What it is |
-| --- | --- |
-| `map.png` | Base image + terrain paint only, no markup. Inkfold draws its own markup on this. |
-| `rendered.png` | Everything flattened, for showing the map as a plain picture. |
-| `interchange.json` | The markup, described below. |
-
-All coordinates are **normalised 0–1** against the image width and height, so they survive resizing.
-Inkfold should ignore any field it doesn't know.
-
-```json
-{
-  "format": "mapfold-interchange",
-  "version": 2,
-  "source": { "app": "Mapfold", "author": "direk james", "worldId": "...", "worldName": "...", "mapId": "...", "mapName": "...", "parentMapId": null, "revision": 1700000000000 },
-  "scale": { "perCell": 10, "unit": "mi", "cellPx": 64 },
-  "image": { "file": "map.png", "width": 3200, "height": 2400, "rendered": "rendered.png" },
-  "pins":    [{ "id": "...", "x": 0.47, "y": 0.52, "label": "Varn", "icon": "city", "color": "#9b3a32", "note": "" }],
-  "labels":  [{ "id": "...", "x": 0.5, "y": 0.1, "text": "Thornwake", "style": "realm", "size": 0.03, "rotation": 0, "color": null }],
-  "regions": [{ "id": "...", "name": "...", "color": "#9b3a32", "points": [[0.1, 0.2], [0.3, 0.2], [0.3, 0.4]], "note": "" }],
-  "routes":  [{ "id": "...", "name": "...", "kind": "road", "color": null, "points": [[0.1, 0.2], [0.4, 0.5]], "note": "", "entryId": null, "secret": false }],
-  "entries": [{ "id": "...", "type": "place", "name": "Varn", "aliases": [], "tags": ["port"], "fields": { "kind": "City" }, "body": "Plain text, links shown as names." }]
-}
-```
-
-`pins`, `regions` and `routes` may carry an `entryId` pointing into `entries` (only public entries are included, with `||secret||` text removed). Secret pins, labels, regions, routes and entries are omitted from the package altogether (Inkfold has no secret flag). Pins may carry `opensMap` (a nested map's id). Regions add `fill`, `border` and `smooth`; routes add `width` and `smooth`. `source.updated` is the map's last-saved time in milliseconds. `labels[].size` is a fraction of image height. `route.kind` is `road`, `trail`, `river` or `sea`.
-IDs are stable, so Inkfold can re-import an updated map and match existing pins.
-
-## `.mapfold` world file
-
-A ZIP with `world.json` (format `mapfold`, version 2; version 1 files still import, and it now also holds `entries`), `images/<mapId>-base` (uploaded map image, if any),
-`images/<mapId>-terrain.png` and `thumb.png`. Importing into a browser that doesn't have the world restores it with the same ids; if it is already there, a copy with new ids is made.
+Made by [direkjames](https://github.com/direkjames). See [LICENSE](LICENSE).
